@@ -1,0 +1,252 @@
+{
+	"name": "reflectdb",
+	"version": "0.1.0",
+	"description": "Real-time sync engine for TypeScript — a server database and offline-first browser clients stay in sync, with optimistic writes and typed queries.",
+	"keywords": [
+		"sync",
+		"sync-engine",
+		"sync-server",
+		"data-sync",
+		"state-sync",
+		"real-time",
+		"realtime",
+		"replication",
+		"live-query",
+		"local-first",
+		"offline-first",
+		"offline",
+		"optimistic-updates",
+		"conflict-resolution",
+		"last-write-wins",
+		"eventual-consistency",
+		"hybrid-logical-clock",
+		"hlc",
+		"op-log",
+		"websocket",
+		"sse",
+		"server-sent-events",
+		"long-polling",
+		"multiplayer",
+		"collaborative",
+		"collaborative-editing",
+		"presence",
+		"typescript",
+		"type-safe",
+		"react",
+		"react-hooks",
+		"svelte",
+		"drizzle",
+		"drizzle-orm",
+		"kysely",
+		"indexeddb",
+		"postgres",
+		"sqlite",
+		"bun"
+	],
+	"homepage": "https://github.com/TimMikeladze/reflectdb#readme",
+	"bugs": {
+		"url": "https://github.com/TimMikeladze/reflectdb/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/TimMikeladze/reflectdb.git"
+	},
+	"funding": "https://github.com/sponsors/TimMikeladze",
+	"license": "MIT",
+	"author": "Tim Mikeladze <tim.mikeladze@gmail.com> (https://github.com/TimMikeladze)",
+	"type": "module",
+	"engines": {
+		"node": ">=22"
+	},
+	"files": [
+		"dist"
+	],
+	"publishConfig": {
+		"access": "public"
+	},
+	"main": "./dist/cjs/core/index.cjs",
+	"module": "./dist/core/index.js",
+	"types": "./dist/core/index.d.ts",
+	"exports": {
+		".": {
+			"import": {
+				"types": "./dist/core/index.d.ts",
+				"default": "./dist/core/index.js"
+			},
+			"require": {
+				"types": "./dist/cjs/core/index.d.cts",
+				"default": "./dist/cjs/core/index.cjs"
+			}
+		},
+		"./core": {
+			"import": {
+				"types": "./dist/core/index.d.ts",
+				"default": "./dist/core/index.js"
+			},
+			"require": {
+				"types": "./dist/cjs/core/index.d.cts",
+				"default": "./dist/cjs/core/index.cjs"
+			}
+		},
+		"./client": {
+			"import": {
+				"types": "./dist/client/index.d.ts",
+				"default": "./dist/client/index.js"
+			},
+			"require": {
+				"types": "./dist/cjs/client/index.d.cts",
+				"default": "./dist/cjs/client/index.cjs"
+			}
+		},
+		"./server": {
+			"import": {
+				"types": "./dist/server/index.d.ts",
+				"default": "./dist/server/index.js"
+			},
+			"require": {
+				"types": "./dist/cjs/server/index.d.cts",
+				"default": "./dist/cjs/server/index.cjs"
+			}
+		},
+		"./server/drizzle": {
+			"import": {
+				"types": "./dist/server/drizzle.d.ts",
+				"default": "./dist/server/drizzle.js"
+			},
+			"require": {
+				"types": "./dist/cjs/server/drizzle.d.cts",
+				"default": "./dist/cjs/server/drizzle.cjs"
+			}
+		},
+		"./transport/ws": {
+			"import": {
+				"types": "./dist/transport/ws.d.ts",
+				"default": "./dist/transport/ws.js"
+			},
+			"require": {
+				"types": "./dist/cjs/transport/ws.d.cts",
+				"default": "./dist/cjs/transport/ws.cjs"
+			}
+		},
+		"./transport/bun-ws": {
+			"import": {
+				"types": "./dist/transport/bun-ws.d.ts",
+				"default": "./dist/transport/bun-ws.js"
+			},
+			"require": {
+				"types": "./dist/cjs/transport/bun-ws.d.cts",
+				"default": "./dist/cjs/transport/bun-ws.cjs"
+			}
+		},
+		"./transport/sse": {
+			"import": {
+				"types": "./dist/transport/sse.d.ts",
+				"default": "./dist/transport/sse.js"
+			},
+			"require": {
+				"types": "./dist/cjs/transport/sse.d.cts",
+				"default": "./dist/cjs/transport/sse.cjs"
+			}
+		},
+		"./transport/polling": {
+			"import": {
+				"types": "./dist/transport/polling.d.ts",
+				"default": "./dist/transport/polling.js"
+			},
+			"require": {
+				"types": "./dist/cjs/transport/polling.d.cts",
+				"default": "./dist/cjs/transport/polling.cjs"
+			}
+		},
+		"./react": {
+			"import": {
+				"types": "./dist/react/index.d.ts",
+				"default": "./dist/react/index.js"
+			},
+			"require": {
+				"types": "./dist/cjs/react/index.d.cts",
+				"default": "./dist/cjs/react/index.cjs"
+			}
+		},
+		"./svelte": {
+			"import": {
+				"types": "./dist/svelte/index.d.ts",
+				"default": "./dist/svelte/index.js"
+			},
+			"require": {
+				"types": "./dist/cjs/svelte/index.d.cts",
+				"default": "./dist/cjs/svelte/index.cjs"
+			}
+		},
+		"./vanilla": {
+			"import": {
+				"types": "./dist/vanilla/index.d.ts",
+				"default": "./dist/vanilla/index.js"
+			},
+			"require": {
+				"types": "./dist/cjs/vanilla/index.d.cts",
+				"default": "./dist/cjs/vanilla/index.cjs"
+			}
+		},
+		"./client/storage/indexeddb": {
+			"import": {
+				"types": "./dist/client/storage/indexeddb.d.ts",
+				"default": "./dist/client/storage/indexeddb.js"
+			},
+			"require": {
+				"types": "./dist/cjs/client/storage/indexeddb.d.cts",
+				"default": "./dist/cjs/client/storage/indexeddb.cjs"
+			}
+		},
+		"./package.json": "./package.json"
+	},
+	"scripts": {
+		"build": "bunup --filter esm && bunup --filter cjs",
+		"format": "oxfmt",
+		"lint": "oxlint",
+		"prepare": "bun simple-git-hooks",
+		"release": "bumpp --commit --push --tag",
+		"test": "bun test",
+		"test:coverage": "bun test --coverage",
+		"test:watch": "bun test --watch",
+		"test:ui": "bun test/ui/server.tsx",
+		"test:sync": "bun test/ui/test-sync.ts",
+		"type-check": "tsc --noEmit",
+		"verify:exports": "bun scripts/verify-exports.ts",
+		"verify:node": "bun scripts/verify-node-consumer.ts"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.3.10",
+		"@types/react": "^19.2.14",
+		"@types/react-dom": "^19.2.3",
+		"bumpp": "^10.4.1",
+		"bunup": "^0.16.31",
+		"drizzle-orm": "^0.45.1",
+		"fake-indexeddb": "^6.2.5",
+		"kysely": "^0.28.12",
+		"oxfmt": "^0.36.0",
+		"oxlint": "^1.51.0",
+		"react-dom": "^19.2.4",
+		"simple-git-hooks": "^2.13.1",
+		"typescript": "^5.9.3"
+	},
+	"peerDependencies": {
+		"drizzle-orm": ">=0.40.0",
+		"react": ">=18.0.0",
+		"typescript": ">=4.5.0"
+	},
+	"peerDependenciesMeta": {
+		"drizzle-orm": {
+			"optional": true
+		},
+		"react": {
+			"optional": true
+		},
+		"typescript": {
+			"optional": true
+		}
+	},
+	"simple-git-hooks": {
+		"pre-commit": "bun run lint && bun run type-check"
+	}
+}

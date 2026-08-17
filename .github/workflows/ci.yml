@@ -1,0 +1,81 @@
+name: CI
+
+on: [push, pull_request]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
+
+      - name: Verify package exports
+        run: bun run verify:exports
+
+      - name: Type check
+        run: bun run type-check
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Run tests
+        run: bun run test
+
+  # Everything above runs under Bun, against the working tree. Nothing there
+  # observes what a Node consumer observes: resolution through the published
+  # "exports" map by package name, declaration files read without Bun's ambient
+  # types, and module evaluation on a runtime with no `bun:sqlite`. This job
+  # installs the packed tarball into a throwaway Node project and checks all
+  # three. One OS is enough — the gap it covers is runtime, not platform.
+  node-consumer:
+    name: Node ${{ matrix.node }} consumer
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor declared in "engines", and current.
+        node: ["22", "24"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
+
+      - name: Verify Node consumer
+        run: bun run verify:node

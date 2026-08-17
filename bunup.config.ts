@@ -1,0 +1,60 @@
+import { defineConfig } from "bunup";
+
+const entry = [
+	"src/core/index.ts",
+	"src/client/index.ts",
+	"src/server/index.ts",
+	"src/server/drizzle.ts",
+	"src/transport/ws.ts",
+	"src/transport/bun-ws.ts",
+	"src/transport/sse.ts",
+	"src/transport/polling.ts",
+	"src/react/index.ts",
+	"src/svelte/index.ts",
+	"src/vanilla/index.ts",
+	"src/client/storage/indexeddb.ts",
+];
+
+// Pin the base directory so output lands at dist/<subpath>/index.js rather
+// than dist/src/<subpath>/index.js. The "exports" map in package.json is
+// written against the former; `bun run verify:exports` enforces the match.
+const shared = {
+	entry,
+	sourceBase: "./src",
+	dts: true,
+	external: ["drizzle-orm", "react"],
+};
+
+// Two configs rather than one with `format: ["esm", "cjs"]`, because only the
+// CJS output may carry the `define` below. They get SEPARATE output directories:
+// pointed at one, the second pass rewrites the shared chunks the first emitted
+// and leaves the ESM entry points re-exporting names that no longer exist —
+// which every entry still "builds" cleanly through, failing only on import.
+// NOTE: do not add `sideEffects` to package.json. Bun's bundler reads that field
+// while building this package itself and tree-shakes our own modules away — the
+// build still reports success, but every entry point is left re-exporting names
+// that no longer exist and fails at import. Both `false` and `[]` do it.
+// Consumers still tree-shake fine: no entry point runs code at import time, and
+// the per-feature subpaths keep `reflectdb/core` from pulling in `reflectdb/server`.
+export default defineConfig([
+	{ name: "esm", ...shared, format: ["esm"], clean: true },
+	{
+		name: "cjs",
+		...shared,
+		format: ["cjs"],
+		outDir: "dist/cjs",
+		// CJS has no `import.meta`. Left alone the bundler emits it verbatim — a
+		// hard SyntaxError on require — and `shims: true` "fixes" that by baking
+		// the absolute build-machine path into the artifact, which both leaks that
+		// path and makes optional-dependency resolution (drizzle-orm) run from a
+		// directory that does not exist on the consumer's machine.
+		// `module.filename` is the emitted file's own path, so resolution starts
+		// where the package actually lives. NOT `__filename`: Bun rewrites that to
+		// the *source* path in bundled CJS, reintroducing both problems.
+		// `bun run verify:node` fails if a build path reaches dist/ again.
+		define: {
+			"import.meta.url": "module.filename",
+			"import.meta": "{}",
+		},
+	},
+]);

@@ -1,0 +1,13 @@
+{
+	"name": "reflectdb-test-ui",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "bun --hot --watch server.tsx",
+		"test:sync": "bun test-sync.ts"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.2.23"
+	}
+}

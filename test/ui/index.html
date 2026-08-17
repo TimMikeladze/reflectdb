@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap"
+			rel="stylesheet"
+		/>
+		<title>reflectdb · tic-tac-toe</title>
+		<style>
+			* {
+				box-sizing: border-box;
+				margin: 0;
+				padding: 0;
+			}
+			body {
+				font-family: "Inter", sans-serif;
+				background: #0a0a0a;
+				color: #ededed;
+				height: 100vh;
+				display: flex;
+				flex-direction: column;
+			}
+
+			/* Header */
+			header {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				padding: 1rem 1.5rem;
+				border-bottom: 1px solid #222;
+			}
+			h1 {
+				font-size: 1.25rem;
+				font-weight: 600;
+			}
+
+			/* Status */
+			.status {
+				padding: 0.375rem 0.75rem;
+				border-radius: 0.375rem;
+				font-size: 0.75rem;
+				font-weight: 500;
+			}
+			.status.connected,
+			.status.synced {
+				background: #1a3a1a;
+				color: #4ade80;
+			}
+			.status.disconnected {
+				background: #3a1a1a;
+				color: #f87171;
+			}
+			.status.connecting,
+			.status.bootstrapping {
+				background: #3a3a1a;
+				color: #facc15;
+			}
+
+			/* Main */
+			main {
+				flex: 1;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				padding: 1.5rem;
+				overflow: hidden;
+			}
+
+			/* Grid */
+			.grid {
+				display: grid;
+				gap: 1px;
+				background: #222;
+				border: 1px solid #222;
+				border-radius: 0.5rem;
+				overflow: hidden;
+				width: min(80vmin, 600px);
+				height: min(80vmin, 600px);
+			}
+
+			.cell {
+				aspect-ratio: 1;
+				background: #111;
+				transition:
+					background-color 0.1s ease,
+					opacity 0.1s ease;
+				cursor: pointer;
+				position: relative;
+			}
+
+			.cell.empty:hover {
+				background: rgba(255, 255, 255, 0.08) !important;
+			}
+
+			.cell.placed {
+				cursor: default;
+			}
+
+			.cell.placed::after {
+				content: "";
+				position: absolute;
+				inset: 0;
+				border-radius: 1px;
+				box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+			}
+
+			/* Footer */
+			footer {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				padding: 0.75rem 1.5rem;
+				border-top: 1px solid #222;
+				font-size: 0.8125rem;
+			}
+
+			.footer-left {
+				display: flex;
+				align-items: center;
+				gap: 0.5rem;
+			}
+
+			.footer-center {
+				color: #888;
+			}
+			.footer-right {
+				color: #555;
+				font-size: 0.75rem;
+			}
+
+			.color-swatch {
+				width: 14px;
+				height: 14px;
+				border-radius: 3px;
+				border: 1px solid rgba(255, 255, 255, 0.15);
+				flex-shrink: 0;
+			}
+
+			.muted {
+				color: #666;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="root"></div>
+		<script type="module" src="./render.tsx"></script>
+	</body>
+</html>
