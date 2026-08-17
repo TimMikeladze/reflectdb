@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>reflectdb — og card</title>
+    <style>
+      /* Source for public/og.png. Rendered headless at exactly 1200x630 by
+         `bun run og`, so every size here is a fixed pixel value — no responsive
+         behaviour, no web fonts, nothing that could shift between runs. */
+      :root {
+        --bg: #0a0a0b;
+        --bg-2: #111114;
+        --bg-3: #16161a;
+        --line: #1f1f24;
+        --fg: #e7e7ea;
+        --muted: #8a8a93;
+        --accent: #7df9a3;
+        --accent-2: #6ea8ff;
+        --warn: #ffb86b;
+        --violet: #c39bff;
+        --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--mono);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .card {
+        position: relative;
+        width: 1200px;
+        height: 630px;
+        display: grid;
+        grid-template-columns: 1fr 470px;
+        background:
+          radial-gradient(900px 420px at 8% -10%, rgba(125, 249, 163, 0.09), transparent 70%),
+          radial-gradient(700px 380px at 100% 110%, rgba(110, 168, 255, 0.08), transparent 70%),
+          var(--bg);
+      }
+      /* Faint grid, so the flat background reads as a surface rather than a void. */
+      .card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(to right, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+        background-size: 40px 40px;
+      }
+
+      /* ── left column ─────────────────────────────────────────────── */
+
+      .left {
+        position: relative;
+        padding: 56px 0 56px 64px;
+        display: flex;
+        flex-direction: column;
+      }
+      /* Brand pinned top, pill pinned bottom, the pitch floating between them. */
+      .mid {
+        margin: auto 0;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      .brand .mark {
+        width: 26px;
+        height: 26px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--bg-2);
+        display: grid;
+        place-items: center;
+      }
+      .brand .mark span {
+        display: block;
+        width: 12px;
+        height: 2px;
+        background: var(--accent);
+        box-shadow:
+          0 -4px 0 var(--accent-2),
+          0 4px 0 var(--warn);
+      }
+
+      .eyebrow {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .eyebrow .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+
+      h1 {
+        margin: 16px 0 0;
+        font-size: 47px;
+        line-height: 1.14;
+        font-weight: 700;
+        letter-spacing: -0.025em;
+        max-width: 15ch;
+      }
+      h1 .accent {
+        color: var(--accent);
+      }
+
+      .sub {
+        margin: 22px 0 0;
+        font-size: 16.5px;
+        line-height: 1.62;
+        color: var(--muted);
+        max-width: 46ch;
+      }
+      .sub .k {
+        color: var(--fg);
+      }
+      .sub .g {
+        color: var(--accent);
+      }
+      .sub .b {
+        color: var(--accent-2);
+      }
+      .sub .w {
+        color: var(--warn);
+      }
+
+      .chips {
+        margin: 24px 0 0;
+        display: flex;
+        gap: 8px;
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+      .chips span {
+        padding: 5px 10px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--bg-2);
+      }
+
+      .install {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        align-self: flex-start;
+        padding: 11px 16px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--bg-2);
+        font-size: 16px;
+      }
+      .install .prompt {
+        color: var(--accent);
+      }
+      .install .url {
+        margin-left: 14px;
+        padding-left: 14px;
+        border-left: 1px solid var(--line);
+        color: var(--muted);
+      }
+
+      /* ── right column: the mechanism, drawn ───────────────────────── */
+
+      .right {
+        position: relative;
+        padding: 56px 64px 56px 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 14px;
+      }
+
+      .pane {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--bg-2);
+        overflow: hidden;
+      }
+      .pane .bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.02);
+        font-size: 11.5px;
+        color: var(--muted);
+      }
+      .pane .bar i {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--line);
+      }
+      .pane .bar .name {
+        margin-left: 4px;
+      }
+      .pane .bar .badge {
+        margin-left: auto;
+        color: var(--accent);
+      }
+
+      pre {
+        margin: 0;
+        padding: 14px 16px;
+        font-size: 13px;
+        line-height: 1.66;
+        color: var(--fg);
+      }
+      pre .k {
+        color: var(--violet);
+      }
+      pre .s {
+        color: var(--accent);
+      }
+      pre .c {
+        color: var(--muted);
+      }
+      pre .t {
+        color: var(--accent-2);
+      }
+      pre .n {
+        color: var(--warn);
+      }
+
+      /* rows list — an optimistic write mid-flight */
+      .rows {
+        padding: 10px 12px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--bg-3);
+        font-size: 12.5px;
+        color: var(--fg);
+      }
+      .row .box {
+        width: 12px;
+        height: 12px;
+        border: 1px solid var(--muted);
+        border-radius: 3px;
+        flex: none;
+      }
+      .row.done {
+        color: var(--muted);
+      }
+      .row.done .box {
+        border-color: var(--accent);
+        background: var(--accent);
+      }
+      .row .tag {
+        margin-left: auto;
+        font-size: 10.5px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .row.pending {
+        border-color: rgba(255, 184, 107, 0.45);
+      }
+      .row.pending .tag {
+        color: var(--warn);
+      }
+      .row.synced .tag {
+        color: var(--accent);
+      }
+
+      /* the wire between the two panes */
+      .wire {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 2px;
+        font-size: 11.5px;
+        color: var(--muted);
+      }
+      .wire .seg {
+        flex: 1;
+        height: 1px;
+        background: linear-gradient(to right, var(--line), rgba(125, 249, 163, 0.55), var(--line));
+      }
+      .wire .op {
+        padding: 3px 8px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--bg-2);
+        white-space: nowrap;
+      }
+      .wire .op .g {
+        color: var(--accent);
+      }
+      .wire .op .b {
+        color: var(--accent-2);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="left">
+        <div class="brand">
+          <span class="mark"><span></span></span>
+          reflectdb
+        </div>
+
+        <div class="mid">
+          <div class="eyebrow"><span class="dot"></span>TypeScript · offline-first</div>
+          <h1>Real-time sync engine for <span class="accent">TypeScript</span></h1>
+          <p class="sub">
+            Every <span class="g">insert</span>, <span class="b">update</span> and
+            <span class="w">delete</span> lands in the browser first, then syncs to your database —
+            <span class="k">optimistic writes</span>, <span class="k">conflict resolution</span>,
+            <span class="k">end-to-end types</span>.
+          </p>
+          <div class="chips">
+            <span>WebSocket</span><span>SSE</span><span>polling</span><span>IndexedDB</span>
+          </div>
+        </div>
+
+        <div class="install">
+          <span><span class="prompt">$ </span>bun add reflectdb</span>
+          <span class="url">reflectdb.dev</span>
+        </div>
+      </div>
+
+      <div class="right">
+        <div class="pane">
+          <div class="bar">
+            <i></i><i></i><i></i><span class="name">app.tsx</span>
+            <span class="badge">typed</span>
+          </div>
+          <pre><span class="k">const</span> { rows, insert, update } =
+  <span class="t">useSync</span>(<span class="s">"todos"</span>);
+<span class="c">//    ^? Todo[] — inferred from schema</span>
+
+<span class="t">update</span>(id, { done: <span class="n">true</span> });
+<span class="c">// local now · server ack · fan-out</span></pre>
+        </div>
+
+        <div class="wire">
+          <span class="seg"></span>
+          <span class="op"><span class="g">op</span> → server → <span class="b">delta</span></span>
+          <span class="seg"></span>
+        </div>
+
+        <div class="pane">
+          <div class="bar">
+            <i></i><i></i><i></i><span class="name">browser b</span>
+            <span class="badge">live</span>
+          </div>
+          <div class="rows">
+            <div class="row done">
+              <span class="box"></span>ship the op log
+              <span class="tag">synced</span>
+            </div>
+            <div class="row pending">
+              <span class="box"></span>write while offline
+              <span class="tag">pending</span>
+            </div>
+            <div class="row synced">
+              <span class="box"></span>resolve conflicts
+              <span class="tag">delta</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

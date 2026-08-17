@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "og": "bun run scripts/og.ts"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
