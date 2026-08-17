@@ -36,12 +36,16 @@ You bring your own types and your own database. reflectdb handles the protocol, 
   - [Custom conflict resolvers](#custom-conflict-resolvers)
   - [Validating client payloads](#validating-client-payloads)
   - [Ephemeral messages (cursors, presence, typing)](#ephemeral-messages-cursors-presence-typing)
+  - [Typed presence](#typed-presence)
   - [Per-user query results](#per-user-query-results)
+  - [Read-only views](#read-only-views)
   - [Server-driven game loops](#server-driven-game-loops)
+  - [Transactional writes with `server.tx`](#transactional-writes-with-servertx)
   - [Windowed sync and pagination](#windowed-sync-and-pagination)
   - [Auto-generated REST API](#auto-generated-rest-api)
   - [High availability with Postgres](#high-availability-with-postgres)
 - [Whiteboard + Pictionary example](#whiteboard--pictionary-example)
+- [Infinite pong example](#infinite-pong-example)
 - [Architecture](#architecture)
 - [Core Concepts](#core-concepts)
   - [Hybrid Logical Clocks](#hybrid-logical-clocks)
@@ -59,6 +63,8 @@ You bring your own types and your own database. reflectdb handles the protocol, 
   - [`reflectdb/transport/*`](#reflectdbtransport)
 - [Configuration Reference](#configuration-reference)
   - [Query definition](#query-definition)
+  - [View definition](#view-definition)
+  - [Presence definition](#presence-definition)
   - [Server configuration](#server-configuration)
   - [`implement()` options](#implement-options)
   - [Rate limiting](#rate-limiting)
@@ -109,7 +115,10 @@ Optional bits (use what you want):
 - **High availability** — shared Postgres + optional cross-instance polling
 - **Framework bindings** — React hooks, Svelte stores, and a vanilla-JS helper; the core client works anywhere
 - **Ephemeral channels** — presence, cursors, typing indicators that never touch the op log
+- **Typed presence** — `presence()` in the schema, `usePresence()` in the component, key derived for you
+- **Read-only views** — `view()` entries that recompute on their dependencies and reject writes at both levels
 - **Windowed sync** — paginate large tables with `loadMore` + `useTotalCount`
+- **Server-side toolkit** — `tx` (transaction + auto-notify), `lock` / `tryLock`, and self-disposing `interval` / `timeout`
 
 ## Use Cases
 
@@ -268,7 +277,7 @@ Open two tabs — edits in one appear in the other within a round-trip. Close th
 
 ## Recipes
 
-The repo ships one end-to-end example — [`examples/whiteboard/`](./examples/whiteboard/) — a collaborative drawing app with two modes (freeform and **Pictionary**). It exercises the patterns below in one place. The snippets here are minimal, copy-paste-friendly references; see the example for how they fit together.
+The repo ships two end-to-end examples: [`examples/whiteboard/`](./examples/whiteboard/), a collaborative drawing app with two modes (freeform and **Pictionary**), and [`examples/pong/`](./examples/pong/), a circular pong arena with no player cap. Between them they exercise the patterns below in one place. The snippets here are minimal, copy-paste-friendly references; see the examples for how they fit together.
 
 ### WebSocket sync with SQLite + Drizzle
 
@@ -364,11 +373,16 @@ For multi-tenant apps, use `room()` to pin a client to a subset of data:
 ```ts
 server.room("org/:orgId", async ({ params, auth }) => {
   if (!auth.memberships.includes(params.orgId)) {
-    throw new Error("not a member of this org");
+    return { ok: false, reason: "not a member of this org" };
   }
-  return { scope: { orgId: params.orgId } };
+  // return nothing (or `{ ok: true }`) to allow the subscription
 });
 ```
+
+Room keys are resolved from the subscription's params and fail closed: params that
+address a pattern only partially, or that produce a key the pattern can't match, are
+rejected rather than falling back to an unscoped, cross-room subscription. Set
+`room` in `implement()` to require a specific pattern for a query.
 
 The whiteboard example wires this up with [better-auth](https://better-auth.com) — see [`examples/whiteboard/auth.ts`](./examples/whiteboard/auth.ts).
 
@@ -483,7 +497,71 @@ broadcast({ x: e.clientX, y: e.clientY });
 Object.values(events).map((c) => <Cursor x={c.x} y={c.y} />);
 ```
 
+Fan-out follows the sender's **query subscriptions**: recipients are the clients
+subscribed to the same queries, narrowed to the sender's room when one is resolved. A
+client that has called no `sync()` yet has no audience, so its ephemeral messages reach
+nobody. The `userId` on the wire is always the authenticated one — the client-supplied
+value is ignored — and a client-supplied `ttlMs` is clamped server-side.
+
 The whiteboard renders peer cursors this way — see [`examples/whiteboard/app.tsx`](./examples/whiteboard/app.tsx).
+
+### Typed presence
+
+`presence()` is `useEphemeral` with the shape declared in the schema instead of at the
+call site. The channel key is derived from the entry name plus its serialized params, so
+two components watching the same presence entry always agree on the key.
+
+```ts
+// schema.ts
+import { defineSyncQueries, presence, t } from "reflectdb/core";
+
+export const queries = defineSyncQueries({
+  cursor: presence({
+    state: t<{ x: number; y: number; name: string }>(),
+    params: t<{ gameId: string }>(),   // part of the derived key
+    ttlMs: 10_000,
+  }),
+});
+```
+
+```tsx
+// app.tsx — usePresence comes from the typed factory, not the bare import
+import { createSyncReact } from "reflectdb/react";
+import { queries } from "./schema";
+
+export const { SyncProvider, useSync, usePresence } = createSyncReact(queries);
+
+function Cursors({ gameId }: { gameId: string }) {
+  const { peers, set } = usePresence("cursor", { gameId });
+  //      ^? { userId: string; state: { x, y, name } }[]
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) =>
+      set({ x: e.clientX, y: e.clientY, name: myName });
+    window.addEventListener("pointermove", onMove);
+    return () => window.removeEventListener("pointermove", onMove);
+  }, [set]);
+
+  return peers.map((p) => <Cursor key={p.userId} {...p.state} />);
+}
+```
+
+Details worth knowing:
+
+- **No server registration.** Presence entries are not queries — there is no
+  `server.implement`/`server.view` for them. They ride the same ephemeral channel and
+  are room-scoped by the sender's active subscriptions.
+- **`peers` excludes you.** Ephemeral events are only delivered to *other* clients, so
+  render your own cursor from local state.
+- **`userId` is per browser session.** The client has no notion of a logged-in identity,
+  so presence keys entries by `clientId`. Two tabs from one account are two peers. Put
+  the display identity in `state` (as `name` above) if you need it.
+- **Params are required when declared**, exactly like `useSync` — `usePresence("cursor")`
+  fails to compile if the entry declares params.
+- **React only.** `createSyncSvelte` / `createSyncVanilla` have no presence helper; use
+  `sync.sendEphemeral` / `sync.onEphemeral` (or the store's `ephemeral()`) with your own
+  key there. `derivePresenceKey(name, params)` is exported from `reflectdb/react` if you
+  want to interoperate with the same channel by hand.
 
 ### Per-user query results
 
@@ -516,24 +594,152 @@ server.implement("roundWord", {
 
 The `game_secrets` table isn't registered in `defineSyncQueries`, so it's never broadcast directly. Calling `server.notifyChange("game_secrets")` from the engine fans out the recomputed `roundWord` result to whichever client is now the drawer.
 
-### Server-driven game loops
+### Read-only views
 
-Some apps need state that advances on a clock, not on user input — round timers, expiring claims, scheduled rotations. Pair a `setInterval` with `notifyChange` and the server stays the single source of truth.
+The recipe above is a query that happens to reject writes. `view()` makes that the
+declaration: the entry has no `mutate`, `useSync(...)` returns only `{ rows, loading }`,
+and a write that reaches the server anyway is rejected with `readonly_query`.
 
 ```ts
-setInterval(async () => {
-  const now = Date.now();
-  const active = await db.select().from(games).where(eq(games.mode, "pictionary"));
-  for (const g of active) {
-    if (g.state === "drawing" && now >= g.roundEndsAt) {
-      await endRound(g.id);                  // raw SQL writes
-      await server.notifyChange("games");    // fan-out to subscribers
-    }
-  }
-}, 500);
+// schema.ts
+import { defineSyncQueries, view, t } from "reflectdb/core";
+
+export const queries = defineSyncQueries({
+  leaderboard: view({
+    row: t<{ id: string; name: string; points: number }>(),
+    params: t<{ gameId: string }>(),
+    deps: ["games", "scores"],   // re-run when either table changes
+  }),
+});
 ```
 
-Pair with a per-row mutex if a tick can outrun its interval. The whiteboard example does both — see [`examples/whiteboard/server.tsx`](./examples/whiteboard/server.tsx).
+```ts
+// server.ts — server.view, not server.implement
+server.view("leaderboard", (ctx, db) =>
+  db.select().from(scores)
+    .where(eq(scores.gameId, ctx.params.gameId))
+    .orderBy(desc(scores.points))
+    .limit(10));
+```
+
+```tsx
+// app.tsx
+const { rows } = useSync("leaderboard", { params: { gameId } });
+// rows: { id, name, points }[] — there is no .insert / .update / .remove here
+```
+
+Notes:
+
+- **`deps` drives change detection**, falling back to `tables` and then to the entry
+  name. A view over tables it doesn't share a name with must declare them, or it never
+  re-broadcasts.
+- **`implement()` and `view()` are not interchangeable.** Calling `server.implement` on a
+  name declared as a view throws, and so does `server.view` on a name that isn't one.
+- **`server.view(name, fn)` takes no options** — only the callback and the schema's
+  dependency list. There is no `authorize`, `room`, `groupBy`, `count`/`countHints` or
+  `pk` on a view. Do access control inside the callback (it gets `ctx.auth` and
+  `ctx.params`), and fall back to a regular `implement()` with a throwing `mutate` when
+  you need those knobs.
+- **Rows need an `id`.** The primary key isn't configurable for views, so give each row a
+  stable `id` — that's what delta diffing keys on. Computed rows can synthesize one.
+- **The type-level block is React-only.** `createSyncSvelte` / `createSyncVanilla` don't
+  narrow view entries, so a write there compiles and is refused at runtime instead.
+
+### Server-driven game loops
+
+Some apps need state that advances on a clock, not on user input — round timers, expiring claims, scheduled rotations. Pair `server.interval` with `notifyChange` and the server stays the single source of truth.
+
+```ts
+server.interval(500, () =>
+  server.lock("tick", async () => {          // a tick must never outrun itself
+    const now = Date.now();
+    const active = await db.select().from(games).where(eq(games.mode, "pictionary"));
+    for (const g of active) {
+      if (g.state === "drawing" && now >= g.roundEndsAt) {
+        await endRound(g.id);                // raw SQL writes
+        await server.notifyChange("games");  // fan-out to subscribers
+      }
+    }
+  }),
+);
+```
+
+`server.interval(ms, fn)` and `server.timeout(ms, fn)` wrap the globals with three
+differences worth having: a throw or a rejected promise inside `fn` is caught and logged
+instead of taking the process down, the handle is cleared by `server.close()`, and it is
+disposed on `bun --hot` reload — so an edit-save loop doesn't leave a fleet of orphaned
+timers ticking against the same rows. Both return `{ clear() }`.
+
+`server.lock(key, fn)` serializes async work per key: calls queue and run one at a time,
+and a failure in one doesn't poison the queue behind it. `server.tryLock(key, fn)` is the
+skip-if-busy variant — it returns `null` immediately when the key is held, which is
+usually what you want for a tick that would otherwise pile up.
+
+```ts
+const result = await server.tryLock(`game:${gameId}`, () => scoreRound(gameId));
+if (result === null) return;   // another call is already scoring this game
+```
+
+Both are in-process only. Across instances, keep the guard in the database (a
+conditional `UPDATE … WHERE state = 'drawing'` that returns rows-affected) — the lock
+protects a single Node/Bun process, not a cluster. The whiteboard example uses both —
+see [`examples/whiteboard/server.tsx`](./examples/whiteboard/server.tsx).
+
+### Transactional writes with `server.tx`
+
+`notifyChange` per table gets tedious the moment one logical action touches three of
+them. `server.tx` runs the work, tracks which tables it wrote, and fires one
+`notifyChange` per touched table — only if the whole function succeeded.
+
+```ts
+await server.tx(async (tx) => {
+  await tx.update(games).set({ state: "scoring" }).where(eq(games.id, gameId));
+  await tx.insert(scores).values(rows);
+  await tx.delete(guesses).where(eq(guesses.gameId, gameId));
+});
+// → games, scores and guesses each broadcast once, after COMMIT
+```
+
+- **Atomic by default.** `atomic: true` is the default: the body runs inside
+  `BEGIN`/`COMMIT` and rolls back on throw. It resolves an adapter from
+  `ServerConfig.txAtomic`, falling back to a bundled Drizzle adapter (lazy-loaded, so
+  there's no top-level `drizzle-orm` dependency). With neither available it throws —
+  pass `atomic: false` for a non-transactional group, or supply your own adapter with
+  `server.tx({ atomic: myAdapter }, fn)`.
+- **Table tracking is automatic for Drizzle only.** The proxy watches
+  `insert` / `update` / `delete` (`select` is not a write, so it doesn't count). On
+  Kysely, Prisma or raw SQL, call `tx.touch("games")` after each write.
+- **Notifies never fire on a throw**, transactional or not.
+- **Pooled connections need care.** `BEGIN`/`COMMIT` and the writes must share one
+  connection, so pass a single-connection handle when atomicity is load-bearing rather
+  than a pool.
+
+For a single row there is `server.emit(table, payload)`. It generates a rowId, stamps an
+HLC, writes reflectdb's mirror plus the op-log entry, and broadcasts:
+
+```ts
+const { rowId, hlc } = await server.emit("todos", { title: "filed by a cron", done: false });
+await server.emit("todos", { done: true }, { rowId, type: "update" });
+```
+
+It does **not** call your `implement`'s `mutate`, so it does not write your database.
+That makes it the right tool when reflectdb's own store is what your `query` reads, and
+the wrong one when your database is — a broadcast re-runs the query, so a row your
+database never received simply won't appear. When your write has to happen under the
+same stamp, use the primitive `emit` and `server.rest()` are both built on:
+
+```ts
+await server.applyServerOp(
+  { type: "insert", table: "todos", rowId, payload },
+  async (stamped) => {                       // runs before the mirror write
+    await db.insert(todos).values({ id: stamped.rowId, ...stamped.payload });
+  },
+  { roomKey: `org/${orgId}` },               // keep the fanout inside the tenant
+);
+```
+
+A throw inside `execute` aborts before anything touches the mirror or the op log. Omit
+`roomKey` and the broadcast reaches every subscriber of the affected query, across rooms.
 
 ### Windowed sync and pagination
 
@@ -661,6 +867,34 @@ What it demonstrates:
 | Ephemeral cursors per game, scoped via `key: \`cursor:${gameId}\`` | [`app.tsx`](./examples/whiteboard/app.tsx) |
 | Per-table rate limiting (loose for strokes, tight for chat) | `server.rateLimit` in [`server.tsx`](./examples/whiteboard/server.tsx) |
 
+## Infinite pong example
+
+Circular pong with no player cap: [`examples/pong/`](./examples/pong/). The rim is
+divided into one arc per connected player and re-partitions the moment anyone joins
+or drops. Nothing stores the seating chart — both sides derive it from the player
+list, so the arena is a pure function of who is connected.
+
+```bash
+cd examples/pong
+bun install
+bun dev
+# open http://localhost:3004 in two tabs — each tab is a player
+```
+
+No database, no ORM: state is a `Map`, which is all `db` ever has to be.
+
+| Pattern | Where |
+|---------|-------|
+| Server-authoritative loop — `server.interval` + `server.tryLock` at 30 Hz | `tick` in [`server.tsx`](./examples/pong/server.tsx) |
+| Server-origin writes via `server.applyServerOp` (scores) | `tick` in [`server.tsx`](./examples/pong/server.tsx) |
+| `groupBy` — one query execution per arena instead of one per player | `players` / `balls` in [`server.tsx`](./examples/pong/server.tsx) |
+| `serverSet` deriving a column from subscription params | `players` in [`server.tsx`](./examples/pong/server.tsx) |
+| Row ownership enforced with `MutationError` | `players.mutate` in [`server.tsx`](./examples/pong/server.tsx) |
+| `view()` leaderboard, recomputed from `players` | `standings` in [`server.tsx`](./examples/pong/server.tsx) |
+| Typed `presence()` for emoji taunts | `taunts` in [`app.tsx`](./examples/pong/app.tsx) |
+| Rooms scoping each arena, fail-closed | `server.room` in [`server.tsx`](./examples/pong/server.tsx) |
+| Optimistic local paddle + dead reckoning between server frames | `paint` in [`app.tsx`](./examples/pong/app.tsx) |
+
 ## Architecture
 
 ```
@@ -684,21 +918,22 @@ What it demonstrates:
 │                                   │  │                                      │
 │  createSyncServer<TQueries>()     │  │  createSyncClient<TQueries>()        │
 │   ├─ .implement(name, opts)       │  │   ├─ .sync(name, params?)            │
-│   ├─ .auth(token → AuthContext)   │  │   ├─ .insert/.update/.delete         │
-│   ├─ .room(pattern, cb)           │  │   ├─ .subscribe / .subscribeTable    │
-│   ├─ .rateLimit({...})            │  │   ├─ .getRows / .getRow / .getState  │
-│   ├─ .compaction({...})           │  │   ├─ .loadMore / .getTotalCount      │
+│   ├─ .view(name, fn)              │  │   ├─ .insert/.update/.delete         │
+│   ├─ .auth(token → AuthContext)   │  │   ├─ .subscribe / .subscribeTable    │
+│   ├─ .room(pattern, cb)           │  │   ├─ .getRows / .getRow / .getState  │
+│   ├─ .rateLimit / .compaction     │  │   ├─ .loadMore / .getTotalCount      │
 │   ├─ .rest({ prefix })            │  │   └─ .sendEphemeral / .subscribeEph. │
-│   ├─ .notifyChange(table)         │  │                                      │
-│   └─ .close()                     │  │  Internal:                           │
+│   ├─ .notifyChange / .emit / .tx  │  │                                      │
+│   ├─ .lock / .interval / .timeout │  │  Internal:                           │
+│   └─ .close()                     │  │                                      │
 │                                   │  │   • SyncClient (state machine)       │
 │  Pipeline (per op):               │  │   • ClientStore (row cache + queue)  │
 │   1. clock drift check            │  │   • OpCreator (HLC stamping)         │
 │   2. rate limit (fail-open)       │  │                                      │
 │   3. batch-size check             │  │  State machine:                      │
-│   4. readonly enforcement         │  │   hydrating → disconnected → …       │
-│   5. serverSet injection          │  │   connecting → bootstrapping → synced│
-│   6. conflict resolution*         │  │                                      │
+│   4. readonly enforcement         │  │   hydrating → disconnected →         │
+│   5. serverSet injection          │  │   connecting → connected →           │
+│   6. conflict resolution*         │  │   bootstrapping → synced             │
 │                                   │  │  Storage adapters:                   │
 │   (* skipped by eager modes)      │  │   • memory (ephemeral)               │
 │                                   │  │   • indexeddb (persistent)           │
@@ -822,7 +1057,7 @@ Old ops are compacted on a schedule based on client inactivity and minimum op ag
 
 ```ts
 import {
-  defineSyncQueries, t,
+  defineSyncQueries, t, view, presence,
   createHlc, sendHlc, receiveHlc, packHlc, unpackHlc, compareHlc,
   MutationError, TransportSendError, isErrorReason, reasonFromError,
   PROTOCOL_VERSION, MAX_CLOCK_DRIFT_MS, MAX_BATCH_SIZE,
@@ -834,13 +1069,15 @@ import {
 |--------|-------------|
 | `defineSyncQueries(map)` | Identity function that pins your schema's literal types. Feed its result to both server and client. |
 | `t<T>()` | Phantom helper to declare a row or params type. Returns `undefined as T`. |
+| `view({ row?, params?, deps?, tables? })` | Declare a read-only computed query. Registered with `server.view()`; writes are blocked at the type level and rejected at runtime. See [Read-only views](#read-only-views). |
+| `presence({ state?, params?, ttlMs? })` | Declare a typed ephemeral channel. Read with `usePresence()` from `createSyncReact`. See [Typed presence](#typed-presence). |
 | `createHlc(nodeId)` / `sendHlc` / `receiveHlc` | HLC constructors and transitions. |
 | `packHlc` / `unpackHlc` / `compareHlc` | Serialize, deserialize, compare HLC values. |
 | `MutationError(reason, message?)` | Throw from `mutate`/`authorize` to reject a write with a specific `ErrorReason`. |
 | `TransportSendError(clientId, message)` | Throw from a custom `ServerTransport.send` when a frame did not reach the peer. |
 | `isErrorReason(v)` / `reasonFromError(e)` | Validate / extract an `ErrorReason`. |
 
-Types: `HLC`, `SyncOp`, `OpType`, `OpStatus`, `ClientMessage`, `ServerMessage`, `ErrorReason`, `ConflictPolicy`, `ConflictResolver`, `SyncQueryDef`, `InferRow`, `InferParams`, `InferWritableRow`, `RequiresParams`, `RateLimitConfig`, `CompactionConfig`, `ShapeConfig`, `AuthContext`, `DrizzleTableLike`.
+Types: `HLC`, `SyncOp`, `OpType`, `OpStatus`, `ClientMessage`, `ServerMessage`, `ErrorReason`, `ConflictPolicy`, `ConflictResolver`, `SyncQueryDef`, `SyncViewDef`, `SyncPresenceDef`, `SyncQueryEntry`, `SyncQueryMap`, `InferRow`, `InferState`, `InferParams`, `InferWritableRow`, `RequiresParams`, `RateLimitConfig`, `CompactionConfig`, `ShapeConfig`, `AuthContext`, `DrizzleTableLike`.
 
 ### `reflectdb/server`
 
@@ -858,16 +1095,27 @@ import {
 
 | Method | Purpose |
 |--------|---------|
-| `.implement(name, options)` | Register a query handler (required for every query in the schema). |
+| `.implement(name, options)` | Register a query handler (required for every regular query in the schema). |
+| `.view(name, fn)` | Register a read-only query declared with `view()`. No `mutate`; writes reject with `readonly_query`. |
 | `.auth(callback)` | Validate the connection request and return an `AuthContext`. |
-| `.room(pattern, callback)` | Scope clients to a subset of data, matched against URL-style patterns (`org/:orgId`). |
+| `.room(pattern, callback)` | Scope clients to a subset of data, matched against URL-style patterns (`org/:orgId`). Return `{ ok: false, reason }` to deny. |
 | `.rateLimit(config)` | Set per-user/per-table limits. Fail-open on limiter errors. |
 | `.compaction(config)` | Configure op-log compaction. |
 | `.rest({ prefix })` | Generate a CRUD fetch handler. |
 | `.minSchemaVersion(n)` | Reject clients on older schema versions. |
-| `.notifyChange(table)` | Manually trigger a broadcast (for external writes). |
+| `.notifyChange(table, roomKey?)` | Manually trigger a broadcast (for external writes). |
+| `.emit(table, payload, opts?)` | Server-origin row write: stamps an HLC, writes the mirror + op log, broadcasts. Does not call your `mutate`. Returns `{ hlc, rowId }`. |
+| `.applyServerOp(op, execute?, opts?)` | The primitive behind `emit` and `rest`. Hands the stamped HLC to `execute` before the mirror write; a throw aborts both. |
+| `.tx(fn)` / `.tx(opts, fn)` | Run a write group in a transaction (`atomic: true` by default), tracking touched tables and firing one `notifyChange` each on success. |
+| `.lock(key, fn)` | Serialize async work per key. `.tryLock(key, fn)` returns `null` instead of queueing when the key is held. |
+| `.interval(ms, fn)` / `.timeout(ms, fn)` | Timers that log instead of crashing on a throw, and auto-dispose on `close()` and `bun --hot` reload. Return `{ clear() }`. |
+| `.reserveOpId(id)` | Idempotency gate — `true` when the id is fresh. Used to dedupe REST retries. |
 | `.runCompaction()` | Manually run one compaction pass. |
-| `.close()` | Shut down, disconnect clients, close storage. |
+| `.close()` | Shut down, disconnect clients, clear timers, close storage. |
+
+See [Server-driven game loops](#server-driven-game-loops) for `interval` / `lock`, and
+[Transactional writes with `server.tx`](#transactional-writes-with-servertx) for `tx`,
+`emit` and `applyServerOp`.
 
 `createServer()` is the lower-level untyped variant — use it only if you need to register queries dynamically or don't have a `defineSyncQueries` map.
 
@@ -897,7 +1145,7 @@ import { createIndexedDBStorage } from "reflectdb/client/storage/indexeddb";
 | Windowing | `loadMore(name, count)`, `getTotalCount(name)` |
 | Ephemeral | `sendEphemeral({ key, userId, data, ttlMs? })`, `subscribeEphemeral(key, listener)` |
 
-State machine: `hydrating → disconnected → connecting → bootstrapping → synced`. Reconnects with exponential backoff (capped by `maxReconnectDelayMs`, default 30s).
+State machine: `hydrating → disconnected → connecting → connected → bootstrapping → synced`. Reconnects with exponential backoff (capped by `maxReconnectDelayMs`, default 30s).
 
 ### `reflectdb/react`
 
@@ -907,7 +1155,7 @@ import {
   useSync, useSyncStatus, useRow,
   usePendingCount, useEphemeral,
   useTotalCount, useLoadMore,
-  createSyncReact,
+  createSyncReact, derivePresenceKey,
 } from "reflectdb/react";
 ```
 
@@ -928,14 +1176,23 @@ import {
 | Hook | Returns |
 |------|---------|
 | `useSync(table, options?)` | `{ rows, insert, update, remove, loading }` — options: `{ params?, includeDeleted?, window? }` |
-| `useSyncStatus()` | `"hydrating" \| "disconnected" \| "connecting" \| "bootstrapping" \| "synced"` |
+| `useSyncStatus()` | `"hydrating" \| "disconnected" \| "connecting" \| "connected" \| "bootstrapping" \| "synced"` |
 | `useRow(table, id)` | Single row or `null` |
 | `usePendingCount()` | Total unsynced op count |
 | `useEphemeral({ key, userId, ttlMs? })` | `{ events, broadcast }` |
 | `useTotalCount(table)` | Server-side count (requires `countHints: true`) |
 | `useLoadMore(table)` | Function to expand the sync window |
 
-**`createSyncReact<TQueries>()`** returns the same hook set with row and param types inferred from your schema.
+**`createSyncReact<TQueries>(queries)`** returns the same hook set with row and param
+types inferred from your schema, plus two things the bare hooks can't provide:
+
+| Hook | Returns |
+|------|---------|
+| `usePresence(name, params?)` | `{ peers, set }` for a `presence()` entry — `peers` is `{ userId, state }[]`, typed by the schema, and excludes you. Params are required when the entry declares them. |
+| `useSync(viewName)` | `{ rows, loading }` for a `view()` entry — the mutators are absent from the type *and* stripped at runtime. |
+
+`derivePresenceKey(name, params)` produces the same channel key `usePresence` uses, for
+interoperating with `useEphemeral` or a non-React binding by hand.
 
 ### `reflectdb/svelte`
 
@@ -1021,6 +1278,50 @@ Every entry in `defineSyncQueries({ ... })`:
 
 `conflict` resolves the incoming op against **reflectdb's mirror** (its own JSONB row store and per-column clocks), not against your database. The two agree as long as every write goes through reflectdb and `mutate` persists the resolved payload verbatim — see [Two stores, one sync](#two-stores-one-sync).
 
+A schema entry can also be a **view** or a **presence** channel instead of a regular
+query. All three live in the same `defineSyncQueries({ ... })` map:
+
+```ts
+import { defineSyncQueries, t, view, presence } from "reflectdb/core";
+
+export const queries = defineSyncQueries({
+  todos:       { row: t<Todo>(), conflict: "lww" },  // regular  → server.implement()
+  leaderboard: view({ row: t<Score>(), deps: ["scores"] }),   // → server.view()
+  cursor:      presence({ state: t<{ x: number; y: number }>() }),  // → no server call
+});
+```
+
+### View definition
+
+```ts
+view({
+  row: t<MyRow>(),               // row type (or omit for Record<string, unknown>)
+  params: t<{ gameId: string }>(),// typed params, same rules as a query
+  deps: ["games", "scores"],     // change-detection tables
+  tables: ["scores"],            // fallback when `deps` is absent
+})
+```
+
+`deps` → `tables` → the entry name, in that order, decides what re-runs the view. Views
+have no `conflict`, `readonly`, `serverSet` or `pk` — they never accept a write.
+Register with [`server.view(name, fn)`](#read-only-views); `server.implement` on a view
+name throws.
+
+### Presence definition
+
+```ts
+presence({
+  state: t<{ x: number; y: number; name: string }>(),  // payload shape
+  params: t<{ gameId: string }>(),                     // folded into the channel key
+  ttlMs: 10_000,                                       // entry expiry; omit for none
+})
+```
+
+Presence entries are ephemeral channels, not queries: there is nothing to register
+server-side, nothing lands in the op log, and the fan-out is scoped by the sender's
+active room. Read them with `usePresence` from `createSyncReact(queries)` — see
+[Typed presence](#typed-presence).
+
 ### Server configuration
 
 ```ts
@@ -1061,6 +1362,13 @@ server.implement("todos", {
   room: "org/:orgId",                         // require this room pattern on every subscription
 });
 ```
+
+`query` may return whatever your data layer hands back, including live objects
+your own code mutates later — an in-memory store, a game loop, an ORM's tracked
+entities. Change detection snapshots each row when it caches it, so mutating the
+same object in place is still seen as a change. The snapshot is shallow: mutating
+a *nested* object inside a row is not, so treat nested values as immutable
+(replace them rather than editing in place).
 
 `broadcast` modes:
 
