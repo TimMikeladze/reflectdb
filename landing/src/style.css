@@ -17,6 +17,11 @@
 	box-sizing: border-box;
 }
 
+html {
+	/* Anchor jumps must clear the sticky bar. */
+	scroll-padding-top: 60px;
+}
+
 html,
 body {
 	margin: 0;
@@ -41,31 +46,66 @@ a:hover {
 #app {
 	max-width: 1140px;
 	margin: 0 auto;
-	padding: 48px 24px 96px;
+	padding: 0 24px 96px;
 }
 
+/* Sticky, one-line header. The negative margins pull it out of #app's padding
+   so the bar and its blur run edge to edge while the contents stay aligned
+   with the rest of the page. */
 header {
+	position: sticky;
+	top: 0;
+	z-index: 50;
 	display: flex;
-	align-items: baseline;
+	align-items: center;
 	justify-content: space-between;
-	flex-wrap: wrap;
 	gap: 16px;
-	padding-bottom: 24px;
+	height: 44px;
+	margin: 0 -24px 32px;
+	padding: 0 24px;
+	background: color-mix(in srgb, var(--bg) 88%, transparent);
+	backdrop-filter: blur(10px);
+	-webkit-backdrop-filter: blur(10px);
 	border-bottom: 1px solid var(--line);
-	margin-bottom: 48px;
 }
 
 .brand {
 	font-weight: 700;
-	font-size: 18px;
+	font-size: 15px;
 	color: var(--fg);
+	flex: none;
 }
 nav {
 	display: flex;
-	gap: 20px;
-	flex-wrap: wrap;
-	font-size: 13px;
+	align-items: center;
+	/* Right-aligned next to the repo link when there is room; the auto margin
+	   collapses once the links overflow and the scroller takes the space. */
+	margin-left: auto;
+	gap: 18px;
+	font-size: 12.5px;
 	color: var(--muted);
+	/* One line always — on narrow screens the links scroll sideways instead of
+	   wrapping into extra rows and doubling the header height. */
+	overflow-x: auto;
+	scrollbar-width: none;
+	-webkit-overflow-scrolling: touch;
+	mask-image: linear-gradient(to right, transparent 0, #000 12px);
+	-webkit-mask-image: linear-gradient(to right, transparent 0, #000 12px);
+	padding-left: 12px;
+}
+nav::-webkit-scrollbar {
+	display: none;
+}
+nav a {
+	white-space: nowrap;
+}
+
+/* Pinned outside the scroller so the repo link survives on narrow screens. */
+.gh {
+	flex: none;
+	font-size: 12.5px;
+	white-space: nowrap;
+	margin-left: 18px;
 }
 
 section {
@@ -596,5 +636,45 @@ footer a:hover {
 @media (prefers-reduced-motion: reduce) {
 	.cursor {
 		animation: none;
+	}
+}
+
+@media (max-width: 640px) {
+	#app {
+		padding: 0 16px 72px;
+	}
+	header {
+		height: 40px;
+		margin: 0 -16px 24px;
+		padding: 0 16px;
+	}
+	.brand {
+		font-size: 14px;
+	}
+	.gh {
+		font-size: 12px;
+		margin-left: 12px;
+	}
+	nav {
+		gap: 14px;
+		font-size: 12px;
+		/* Fade both edges so a partly-scrolled link list reads as scrollable. */
+		mask-image: linear-gradient(
+			to right,
+			transparent 0,
+			#000 10px,
+			#000 calc(100% - 14px),
+			transparent 100%
+		);
+		-webkit-mask-image: linear-gradient(
+			to right,
+			transparent 0,
+			#000 10px,
+			#000 calc(100% - 14px),
+			transparent 100%
+		);
+	}
+	h1 {
+		font-size: 26px;
 	}
 }

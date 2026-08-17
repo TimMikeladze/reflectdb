@@ -193,8 +193,8 @@ export function renderApp(root: HTMLElement): void {
         <a href="#concepts">concepts</a>
         <a href="#features">features</a>
         <a href="#transports">transports</a>
-        <a href="${REPO}">github</a>
       </nav>
+      <a class="gh" href="${REPO}">github</a>
     </header>
 
     <section id="hero">
