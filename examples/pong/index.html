@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta name="color-scheme" content="dark" />
+		<title>reflectdb · infinite pong</title>
+		<style>
+			* {
+				box-sizing: border-box;
+				margin: 0;
+				padding: 0;
+			}
+			:root {
+				--bg: #0a0a0b;
+				--bg-1: #111114;
+				--line: #1f1f24;
+				--fg: #e7e7ea;
+				--muted: #8a8a93;
+				--accent: #7df9a3;
+				--danger: #f87171;
+				--mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+			}
+			html,
+			body,
+			#root {
+				height: 100%;
+			}
+			body {
+				background: var(--bg);
+				color: var(--fg);
+				font-family: var(--mono);
+				font-size: 13px;
+				overflow: hidden;
+				user-select: none;
+			}
+
+			.shell {
+				display: flex;
+				height: 100%;
+			}
+
+			/* ── Arena ─────────────────────────────────────────────── */
+			.stage {
+				flex: 1;
+				position: relative;
+				min-width: 0;
+				background: radial-gradient(circle at 50% 50%, #101014, #0a0a0b 70%);
+			}
+			.arena {
+				position: absolute;
+				inset: 0;
+				width: 100%;
+				height: 100%;
+				cursor: crosshair;
+				touch-action: none;
+			}
+			.overlay {
+				position: absolute;
+				top: 50%;
+				left: 50%;
+				transform: translate(-50%, -50%);
+				color: var(--muted);
+				font-size: 12px;
+				letter-spacing: 0.08em;
+				text-transform: uppercase;
+				pointer-events: none;
+			}
+
+			/* ── Panel ─────────────────────────────────────────────── */
+			.panel {
+				width: 300px;
+				flex-shrink: 0;
+				border-left: 1px solid var(--line);
+				background: var(--bg-1);
+				padding: 16px;
+				display: flex;
+				flex-direction: column;
+				gap: 14px;
+				overflow-y: auto;
+			}
+			.panel header {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				gap: 8px;
+			}
+			.panel h1 {
+				font-size: 15px;
+				font-weight: 700;
+			}
+			.panel h2 {
+				font-size: 10px;
+				text-transform: uppercase;
+				letter-spacing: 0.12em;
+				color: var(--muted);
+				font-weight: 600;
+			}
+			.blurb {
+				color: var(--muted);
+				font-size: 11.5px;
+				line-height: 1.55;
+			}
+
+			.status {
+				font-size: 10px;
+				padding: 3px 6px;
+				border-radius: 3px;
+				border: 1px solid var(--line);
+				color: var(--muted);
+			}
+			.status.synced {
+				color: var(--accent);
+				border-color: #2a4a35;
+			}
+			.status.disconnected {
+				color: var(--danger);
+				border-color: #4a2a2a;
+			}
+
+			.stat-row {
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+				gap: 1px;
+				background: var(--line);
+				border: 1px solid var(--line);
+				border-radius: 4px;
+				overflow: hidden;
+			}
+			.stat {
+				background: var(--bg);
+				padding: 8px 10px;
+			}
+			.stat span {
+				display: block;
+				font-size: 18px;
+				font-weight: 700;
+				line-height: 1.2;
+			}
+			.stat span.miss {
+				color: var(--danger);
+			}
+			.stat label {
+				font-size: 10px;
+				color: var(--muted);
+			}
+
+			.field {
+				display: flex;
+				flex-direction: column;
+				gap: 4px;
+			}
+			.field span {
+				font-size: 10px;
+				text-transform: uppercase;
+				letter-spacing: 0.12em;
+				color: var(--muted);
+			}
+			.field input {
+				font-family: var(--mono);
+				font-size: 13px;
+				padding: 7px 9px;
+				border-radius: 4px;
+				border: 1px solid var(--line);
+				background: var(--bg);
+				color: var(--fg);
+				outline: none;
+			}
+			.field input:focus {
+				border-color: #3a3a44;
+			}
+
+			.taunts {
+				display: flex;
+				gap: 6px;
+			}
+			.taunts button {
+				flex: 1;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				gap: 4px;
+				padding: 7px 0;
+				font-size: 15px;
+				border-radius: 4px;
+				border: 1px solid var(--line);
+				background: var(--bg);
+				cursor: pointer;
+			}
+			.taunts button:hover {
+				border-color: #3a3a44;
+			}
+			.taunts kbd {
+				font-family: var(--mono);
+				font-size: 9px;
+				color: var(--muted);
+			}
+
+			.board {
+				list-style: none;
+				display: flex;
+				flex-direction: column;
+				gap: 2px;
+			}
+			.board li {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				padding: 5px 8px;
+				border-radius: 4px;
+				background: var(--bg);
+				border: 1px solid transparent;
+				font-size: 12px;
+			}
+			.board li.self {
+				border-color: #2a4a35;
+			}
+			.board li.empty {
+				color: #55555e;
+				justify-content: center;
+			}
+			.board i {
+				width: 8px;
+				height: 8px;
+				border-radius: 50%;
+				flex-shrink: 0;
+			}
+			.board .who {
+				flex: 1;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+			.board .pts {
+				font-weight: 700;
+			}
+			.board .miss {
+				color: var(--danger);
+				font-size: 11px;
+				min-width: 18px;
+				text-align: right;
+			}
+
+			.panel footer {
+				margin-top: auto;
+				display: flex;
+				flex-direction: column;
+				gap: 8px;
+				padding-top: 12px;
+				border-top: 1px solid var(--line);
+			}
+			.arena-id {
+				font-size: 11px;
+				color: var(--muted);
+			}
+			.arena-id code,
+			.hint code {
+				color: var(--fg);
+			}
+			.panel footer button {
+				font-family: var(--mono);
+				font-size: 11px;
+				padding: 6px 8px;
+				border-radius: 4px;
+				border: 1px solid var(--line);
+				background: var(--bg);
+				color: var(--fg);
+				cursor: pointer;
+			}
+			.panel footer button:hover {
+				border-color: var(--accent);
+			}
+			.hint {
+				font-size: 10.5px;
+				color: #55555e;
+				line-height: 1.5;
+			}
+
+			@media (max-width: 720px) {
+				.shell {
+					flex-direction: column;
+				}
+				.panel {
+					width: auto;
+					height: 44%;
+					border-left: none;
+					border-top: 1px solid var(--line);
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<div id="root"></div>
+		<script type="module" src="./render.tsx"></script>
+	</body>
+</html>

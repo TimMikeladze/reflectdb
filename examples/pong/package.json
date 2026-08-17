@@ -1,0 +1,12 @@
+{
+	"name": "reflectdb-pong-example",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "bun --hot --watch server.tsx"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.2.23"
+	}
+}
