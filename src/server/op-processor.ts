@@ -14,12 +14,7 @@ import { processOp } from "./pipeline.ts";
 import type { PipelineContext } from "./pipeline.ts";
 import type { ReplayDetector } from "./replay-detector.ts";
 import type { ClientSession, SessionManager } from "./session.ts";
-import type {
-	AuthorizeAction,
-	MutateResult,
-	MutationContext,
-	ResolvedOp,
-} from "./types.ts";
+import type { AuthorizeAction, MutateResult, MutationContext, ResolvedOp } from "./types.ts";
 
 /**
  * Per-`ops`-message state shared by every op in the batch: which op ids were
@@ -298,9 +293,7 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 			const resolvedServerSet: Record<string, unknown> = {};
 			for (const [key, value] of Object.entries(enforcedOptions.serverSet)) {
 				resolvedServerSet[key] =
-					typeof value === "function"
-						? (value as (ctx: unknown) => unknown)(serverSetCtx)
-						: value;
+					typeof value === "function" ? (value as (ctx: unknown) => unknown)(serverSetCtx) : value;
 			}
 			enforcedOptions = { ...enforcedOptions, serverSet: resolvedServerSet };
 		}
@@ -411,26 +404,19 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 		// can't leave subscribers with an op the server doesn't remember.
 		// Standard eager mode pushes to the buffer and flushes lazily.
 		if (queryReg.options.broadcast === "eager-durable" && this.storage) {
-			await this.storage.applyOp!(
-				op.table,
-				op.rowId,
-				mergedRow,
-				colClocks,
-				hlcStr,
-				op.op,
-				payload,
-			);
+			await this.storage.applyOp!(op.table, op.rowId, mergedRow, colClocks, hlcStr, op.op, payload);
+			this.recordBatchWrite(batchCtx, op.table, op.rowId, mergedRow, colClocks, hlcStr);
+		} else if (!this.storage) {
+			// Nothing to persist: the op log is disabled entirely. Buffering here
+			// would fill a buffer that is never drained — and once it hit
+			// maxBufferSize every subsequent write would be rejected `buffer_full`.
 			this.recordBatchWrite(batchCtx, op.table, op.rowId, mergedRow, colClocks, hlcStr);
 		} else {
 			// Push to buffer for deferred persistence (capacity already checked).
 			// If push fails because the buffer filled while mutate awaited, fall
 			// back to atomic synchronous persistence so the op log doesn't drop
 			// a write the user DB already committed.
-			const pushed = this.eagerBuffer.push(
-				op.table,
-				bufferEntry,
-				queryReg.options.maxBufferSize,
-			);
+			const pushed = this.eagerBuffer.push(op.table, bufferEntry, queryReg.options.maxBufferSize);
 			this.recordBatchWrite(batchCtx, op.table, op.rowId, mergedRow, colClocks, hlcStr);
 			if (!pushed && this.storage) {
 				try {
@@ -444,10 +430,7 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 						payload,
 					);
 				} catch (err) {
-					console.error(
-						"[reflectdb] eager fallback applyOp after buffer overflow failed:",
-						err,
-					);
+					console.error("[reflectdb] eager fallback applyOp after buffer overflow failed:", err);
 				}
 			}
 		}

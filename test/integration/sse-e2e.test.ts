@@ -161,7 +161,7 @@ describe("SSE end-to-end", () => {
 		expect(client.getState()).toBe("synced");
 
 		client.insert("items", "i-1", { name: "Test Item" });
-		expect(client.getRow("items", "i-1")).toEqual({ name: "Test Item" });
+		expect(client.getRow("items", "i-1")).toEqual({ id: "i-1", name: "Test Item" });
 		expect(client.getPendingCount()).toBe(1);
 
 		await client.push();

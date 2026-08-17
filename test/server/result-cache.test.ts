@@ -213,4 +213,34 @@ describe("ResultCache", () => {
 		]);
 		expect(diff.updated.length).toBe(0);
 	});
+
+	test("detects changes when the query mutates its rows in place", () => {
+		// An in-memory store hands the same row objects back on every call. If the
+		// cache kept references, the second diff would compare each row with
+		// itself and report nothing — the client would stop receiving updates
+		// after the first broadcast, with no error anywhere.
+		const cache = new ResultCache();
+		const live = { id: "r1", x: 0 };
+
+		cache.set("c", "balls", [live]);
+		live.x = 5;
+		const diff = cache.set("c", "balls", [live]);
+
+		expect(diff.updated.length).toBe(1);
+		expect(diff.updated[0]!.changed).toEqual({ x: 5 });
+	});
+
+	test("diffOnly sees an in-place mutation against a committed snapshot", () => {
+		const cache = new ResultCache();
+		const live = { id: "r1", x: 0 };
+
+		cache.set("c", "balls", [live]);
+		live.x = 1;
+
+		expect(cache.diffOnly("c", "balls", [live]).updated).toEqual([
+			{ rowId: "r1", changed: { x: 1 } },
+		]);
+		// diffOnly must not commit, so the same mutation still diffs afterwards.
+		expect(cache.diffOnly("c", "balls", [live]).updated.length).toBe(1);
+	});
 });

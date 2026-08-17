@@ -151,7 +151,7 @@ describe("End-to-end sync flow", () => {
 
 		// 4. Insert locally
 		const op = client.insert("posts", "row-1", { title: "hello" });
-		expect(client.getRow("posts", "row-1")).toEqual({ title: "hello" });
+		expect(client.getRow("posts", "row-1")).toEqual({ id: "row-1", title: "hello" });
 		expect(client.getPendingCount()).toBe(1);
 
 		// 5. Push to server
@@ -340,7 +340,7 @@ describe("End-to-end sync flow", () => {
 
 		// Client tries to insert into existing row (conflict with server)
 		client.insert("posts", "existing-row", { title: "client-version" });
-		expect(client.getRow("posts", "existing-row")).toEqual({ title: "client-version" });
+		expect(client.getRow("posts", "existing-row")).toEqual({ id: "existing-row", title: "client-version" });
 
 		await client.push();
 		await tick();

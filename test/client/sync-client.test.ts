@@ -162,7 +162,7 @@ describe("SyncClient - Data Operations", () => {
 
 		expect(op.table).toBe("posts");
 		expect(op.op).toBe("insert");
-		expect(client.getRow("posts", "r1")).toEqual({ title: "hello" });
+		expect(client.getRow("posts", "r1")).toEqual({ id: "r1", title: "hello" });
 		expect(client.getPendingCount()).toBe(1);
 	});
 
@@ -171,7 +171,7 @@ describe("SyncClient - Data Operations", () => {
 		client.insert("posts", "r1", { title: "old", body: "keep" });
 		client.update("posts", "r1", { title: "new" });
 
-		expect(client.getRow("posts", "r1")).toEqual({ title: "new", body: "keep" });
+		expect(client.getRow("posts", "r1")).toEqual({ id: "r1", title: "new", body: "keep" });
 		expect(client.getPendingCount()).toBe(2);
 	});
 
@@ -357,7 +357,7 @@ describe("SyncClient - Server Messages", () => {
 			hlc: packHlc({ ms: Date.now(), counter: 0, nodeId: "server:1" }),
 		});
 
-		expect(client.getRow("posts", "r1")).toEqual({ title: "delta-insert" });
+		expect(client.getRow("posts", "r1")).toEqual({ id: "r1", title: "delta-insert" });
 		expect(syncEvents).toEqual(["posts"]);
 	});
 
@@ -377,7 +377,7 @@ describe("SyncClient - Server Messages", () => {
 			},
 		});
 
-		expect(client.getRow("posts", "r1")).toEqual({ title: "server-new", body: "keep" });
+		expect(client.getRow("posts", "r1")).toEqual({ id: "r1", title: "server-new", body: "keep" });
 	});
 
 	test("delta delete removes row", () => {
@@ -446,8 +446,8 @@ describe("SyncClient - Server Messages", () => {
 			{ table: "posts", op: "insert", rowId: "r1", payload: { title: "a" } },
 			{ table: "posts", op: "insert", rowId: "r2", payload: { title: "b" } },
 		]);
-		expect(client.getRow("posts", "r1")).toEqual({ title: "a" });
-		expect(client.getRow("posts", "r2")).toEqual({ title: "b" });
+		expect(client.getRow("posts", "r1")).toEqual({ id: "r1", title: "a" });
+		expect(client.getRow("posts", "r2")).toEqual({ id: "r2", title: "b" });
 
 		const batchId = ops[0]!.batchId!;
 		transport.simulateMessage({

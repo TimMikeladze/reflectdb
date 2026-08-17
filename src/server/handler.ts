@@ -370,8 +370,7 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 			// broadcasts stay monotonic relative to applied client ops.
 			receiveClientHlc: (hlc) => this.clock.receive(hlc),
 			send: (clientId, message) => this.transport.send(clientId, message),
-			broadcastChanges: (table, excludeClientId) =>
-				this.broadcastChanges(table, excludeClientId),
+			broadcastChanges: (table, excludeClientId) => this.broadcastChanges(table, excludeClientId),
 		});
 
 		this.transport.onConnect((clientId) => {
@@ -412,10 +411,14 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 				inflight
 					.catch(() => {})
 					.then(() =>
-						this.transport.send(clientId, {
-							type: "disconnect",
-							reason: "Message queue overflow",
-						}).catch(() => {/* best-effort */}),
+						this.transport
+							.send(clientId, {
+								type: "disconnect",
+								reason: "Message queue overflow",
+							})
+							.catch(() => {
+								/* best-effort */
+							}),
 					)
 					.then(() => this.transport.disconnect?.(clientId))
 					.finally(() => {
@@ -475,7 +478,9 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 		}
 		const opts = registration.options;
 		if (opts.mutate !== undefined && typeof opts.mutate !== "function") {
-			throw new TypeError(`[reflectdb] Query "${name}": options.mutate must be a function or undefined`);
+			throw new TypeError(
+				`[reflectdb] Query "${name}": options.mutate must be a function or undefined`,
+			);
 		}
 		if (opts.authorize !== undefined && typeof opts.authorize !== "function") {
 			throw new TypeError(
@@ -495,9 +500,16 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 			queryNames.add(name);
 		}
 
-		// Start the eager buffer timer when the first eager query is registered
-		if (registration.options.broadcast === "eager") {
+		// Start the eager buffer timer when the first eager query is registered.
+		// "eager-durable" persists inline when storage is configured, but falls
+		// back to the buffer when it isn't — so it needs a running drain too.
+		if (
+			registration.options.broadcast === "eager" ||
+			registration.options.broadcast === "eager-durable"
+		) {
 			this.eagerBuffer.start(registration.options.flushInterval);
+		}
+		if (registration.options.broadcast === "eager") {
 			if (!MessageHandler.eagerWarned) {
 				MessageHandler.eagerWarned = true;
 				console.warn(
@@ -809,7 +821,12 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 		// Send bootstrap_complete with query metadata
 		const tableMeta: Record<
 			string,
-			{ serverSet: string[]; readonly: string[]; broadcast: "consistent" | "eager" | "eager-durable"; pk: string }
+			{
+				serverSet: string[];
+				readonly: string[];
+				broadcast: "consistent" | "eager" | "eager-durable";
+				pk: string;
+			}
 		> = {};
 		for (const [queryName] of session.subscriptions) {
 			const queryReg = this.queries.get(queryName);
@@ -1086,10 +1103,7 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 				}
 				this.sessions.setAuth(clientId, auth);
 			} catch (err) {
-				console.error(
-					`[reflectdb] Auth callback failed for client ${clientId} (ops push):`,
-					err,
-				);
+				console.error(`[reflectdb] Auth callback failed for client ${clientId} (ops push):`, err);
 				this.emit({ type: "auth_failed", clientId, error: err });
 				await this.trySend(clientId, {
 					type: "reauth",
@@ -1129,12 +1143,7 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 				continue;
 			}
 
-			const result = await this.ops.processClientOp(
-				op,
-				session,
-				deferredBroadcastTables,
-				batch,
-			);
+			const result = await this.ops.processClientOp(op, session, deferredBroadcastTables, batch);
 			if (result.accepted) {
 				accepted.push(op.id);
 			} else {
@@ -1186,7 +1195,6 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 			);
 		}
 	}
-
 
 	/**
 	 * After a write to a table, find all queries that depend on that table,

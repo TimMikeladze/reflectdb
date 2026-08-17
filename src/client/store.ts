@@ -33,7 +33,12 @@ export class ClientStore {
 	private rows = new Map<string, Map<string, LocalRow>>();
 	private tableMeta = new Map<
 		string,
-		{ serverSet: string[]; readonly: string[]; broadcast: "consistent" | "eager" | "eager-durable"; pk: string }
+		{
+			serverSet: string[];
+			readonly: string[];
+			broadcast: "consistent" | "eager" | "eager-durable";
+			pk: string;
+		}
 	>();
 	private storage: ClientStorageAdapter | null;
 	private pendingWrites: Promise<void>[] = [];
@@ -82,7 +87,12 @@ export class ClientStore {
 		if (tableMetaJson) {
 			const parsed = JSON.parse(tableMetaJson) as Record<
 				string,
-				{ serverSet: string[]; readonly: string[]; broadcast?: "consistent" | "eager" | "eager-durable"; pk?: string }
+				{
+					serverSet: string[];
+					readonly: string[];
+					broadcast?: "consistent" | "eager" | "eager-durable";
+					pk?: string;
+				}
 			>;
 			for (const [table, m] of Object.entries(parsed)) {
 				this.tableMeta.set(table, {
@@ -315,7 +325,13 @@ export class ClientStore {
 			if (existing?.serverHlc && compareHlc(hlc, existing.serverHlc) <= 0) {
 				return;
 			}
-			this.setRow(table, rowId, payload ?? {}, colClocks ?? { _row: hlc }, hlc);
+			this.setRow(
+				table,
+				rowId,
+				this.withPk(table, rowId, payload ?? {}),
+				colClocks ?? { _row: hlc },
+				hlc,
+			);
 			return;
 		}
 
@@ -345,7 +361,27 @@ export class ClientStore {
 		const newRowHlc =
 			existing.serverHlc && compareHlc(existing.serverHlc, hlc) >= 0 ? existing.serverHlc : hlc;
 		mergedClocks._row = newRowHlc;
-		this.setRow(table, rowId, mergedData, mergedClocks, newRowHlc);
+		this.setRow(table, rowId, this.withPk(table, rowId, mergedData), mergedClocks, newRowHlc);
+	}
+
+	/**
+	 * Guarantee a materialized row carries its own primary key.
+	 *
+	 * A delta's payload is not always a whole row: eager broadcasts forward the
+	 * writer's payload verbatim, and the typed API omits the pk from what a
+	 * client may write — so an eagerly-broadcast insert describes a row with no
+	 * id in it. Rows are addressed by `rowId` everywhere in the protocol, so the
+	 * key is never in doubt; only the materialized object was missing it, and
+	 * `rows.map(r => r.id)` came back undefined.
+	 */
+	private withPk(
+		table: string,
+		rowId: string,
+		data: Record<string, unknown>,
+	): Record<string, unknown> {
+		const pk = this.tableMeta.get(table)?.pk ?? "id";
+		if (data[pk] !== undefined) return data;
+		return { ...data, [pk]: rowId };
 	}
 
 	// Revert a rejected op — server state wins (design decision #3).
@@ -408,10 +444,13 @@ export class ClientStore {
 		);
 	}
 
-	getTableMeta(
-		table: string,
-	):
-		| { serverSet: string[]; readonly: string[]; broadcast: "consistent" | "eager" | "eager-durable"; pk: string }
+	getTableMeta(table: string):
+		| {
+				serverSet: string[];
+				readonly: string[];
+				broadcast: "consistent" | "eager" | "eager-durable";
+				pk: string;
+		  }
 		| undefined {
 		return this.tableMeta.get(table);
 	}
@@ -428,6 +467,11 @@ export class ClientStore {
 			for (const field of meta.serverSet) {
 				delete payload[field];
 			}
+		}
+
+		// Materialize the primary key from the op's rowId — see `withPk`.
+		if (op.op === "insert" && payload) {
+			payload = this.withPk(op.table, op.rowId, payload);
 		}
 
 		if (op.op === "delete") {

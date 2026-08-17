@@ -121,8 +121,8 @@ describe("Offline-First Integration", () => {
 
 		expect(client2.getState()).toBe("disconnected");
 		expect(client2.getRows("posts")).toHaveLength(2);
-		expect(client2.getRow("posts", "r1")).toEqual({ title: "first post" });
-		expect(client2.getRow("posts", "r2")).toEqual({ title: "second post" });
+		expect(client2.getRow("posts", "r1")).toEqual({ id: "r1", title: "first post" });
+		expect(client2.getRow("posts", "r2")).toEqual({ id: "r2", title: "second post" });
 	});
 
 	test("pending ops survive restart", async () => {
@@ -141,7 +141,7 @@ describe("Offline-First Integration", () => {
 		await client2.init();
 
 		expect(client2.getPendingCount()).toBe(1);
-		expect(client2.getRow("posts", "r1")).toEqual({ title: "pending post" });
+		expect(client2.getRow("posts", "r1")).toEqual({ id: "r1", title: "pending post" });
 	});
 
 	test("offline mutations → connect → push → ack", async () => {
@@ -160,7 +160,7 @@ describe("Offline-First Integration", () => {
 
 		// Insert while offline — synchronous, no network
 		client2.insert("posts", "r1", { title: "offline post" });
-		expect(client2.getRow("posts", "r1")).toEqual({ title: "offline post" });
+		expect(client2.getRow("posts", "r1")).toEqual({ id: "r1", title: "offline post" });
 		expect(client2.getPendingCount()).toBe(1);
 
 		// Connect
@@ -276,7 +276,7 @@ describe("Offline-First Integration", () => {
 
 		// Data available without connection
 		expect(client2.getRows("posts")).toHaveLength(1);
-		expect(client2.getRow("posts", "r1")).toEqual({ title: "cached" });
+		expect(client2.getRow("posts", "r1")).toEqual({ id: "r1", title: "cached" });
 		expect(client2.getState()).toBe("disconnected");
 	});
 
@@ -355,7 +355,7 @@ describe("Offline-First Integration", () => {
 		expect(client.getState()).toBe("connected");
 
 		client.insert("posts", "r1", { title: "hello" });
-		expect(client.getRow("posts", "r1")).toEqual({ title: "hello" });
+		expect(client.getRow("posts", "r1")).toEqual({ id: "r1", title: "hello" });
 	});
 
 	test("table meta persisted and restored", async () => {

@@ -1307,3 +1307,57 @@ describe("eager-durable: persist-before-broadcast invariant", () => {
 		expect(oplogLenAtBobDelta).toBe(0);
 	});
 });
+
+describe("eager with no storage configured", () => {
+	test("keeps accepting writes past maxBufferSize", async () => {
+		// With no op log there is nothing to persist, so nothing may accumulate in
+		// the eager buffer. Buffering here used to fill it to maxBufferSize and
+		// then reject every subsequent write with `buffer_full` — a server that
+		// works for the first N writes of its life and then stops.
+		const transport = createMockTransport();
+		const rows = new Map<string, Record<string, unknown>>();
+
+		const handler = new MessageHandler({ transport, serverId: "test", db: {} });
+		handler.setAuth(async () => ({ userId: "user1" }));
+		handler.setQuery("strokes", {
+			name: "strokes",
+			callback: () => [...rows.values()],
+			tableDependencies: new Set(["strokes"]),
+			options: {
+				tables: ["strokes"],
+				broadcast: "eager-durable",
+				maxBufferSize: 5,
+				mutate: async (op) => {
+					rows.set(op.rowId, { id: op.rowId, ...(op.payload as Record<string, unknown>) });
+				},
+			},
+		});
+
+		await connectAndSync(transport, "alice");
+		transport.sentMessages.length = 0;
+
+		for (let i = 0; i < 40; i++) {
+			transport.messageHandler!("alice", {
+				type: "ops",
+				token: "valid",
+				ops: [
+					{
+						id: `op-nb-${i}`,
+						table: "strokes",
+						op: "insert",
+						rowId: `s${i}`,
+						payload: { color: "#fff" },
+						hlc: `000000000000${i % 10}.0001.client:alice`,
+					},
+				],
+			});
+			await new Promise((r) => setTimeout(r, 1));
+		}
+
+		expect(getMessagesForClient(transport, "alice", "reject")).toEqual([]);
+		expect(rows.size).toBe(40);
+		expect(handler.getEagerBuffer().pendingCount).toBe(0);
+
+		await handler.close();
+	});
+});

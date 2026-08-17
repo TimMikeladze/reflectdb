@@ -66,6 +66,16 @@ export class ResultCache {
 
 	/**
 	 * Update the cached result set and return the diff.
+	 *
+	 * Rows are snapshotted, not referenced. A query that hands back live objects
+	 * — an in-memory store, a game loop mutating rows in place, an ORM returning
+	 * tracked entities — would otherwise have the cache holding the very objects
+	 * the next write mutates, so every later diff compares a row against itself,
+	 * finds nothing changed, and the client silently stops receiving updates.
+	 *
+	 * The copy is shallow: mutating a nested object inside a row in place is
+	 * still invisible to change detection.
+	 *
 	 * @param idField - The field name used as the row identifier (default: "id")
 	 */
 	set(
@@ -81,7 +91,7 @@ export class ResultCache {
 		for (const row of rows) {
 			const rowId = String(row[idField] ?? "");
 			if (rowId) {
-				newRows.set(rowId, row);
+				newRows.set(rowId, { ...row });
 			}
 		}
 
@@ -106,7 +116,8 @@ export class ResultCache {
 		rows: Record<string, unknown>[],
 		idField = "id",
 	): DiffResult {
-		const oldRows = this.cache.get(clientId)?.get(queryName) ?? new Map<string, Record<string, unknown>>();
+		const oldRows =
+			this.cache.get(clientId)?.get(queryName) ?? new Map<string, Record<string, unknown>>();
 		const newRows = new Map<string, Record<string, unknown>>();
 		for (const row of rows) {
 			const rowId = String(row[idField] ?? "");

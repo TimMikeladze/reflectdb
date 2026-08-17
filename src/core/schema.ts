@@ -12,19 +12,30 @@ export interface DrizzleTableLike {
 /**
  * Value supplied per serverSet field in the schema's object form.
  * Either a static value or a function that receives the request context.
+ *
+ * The static arm is enumerated rather than written as `unknown`: a union with
+ * `unknown` collapses to `unknown`, which strips the contextual type from the
+ * callback arm and makes every `(ctx) => …` an implicit `any` under `strict`.
  */
 export type ServerSetSchemaValue =
-	| unknown
-	| ((ctx: { auth: unknown; params: unknown }) => unknown);
+	| ((ctx: { auth: unknown; params: unknown }) => unknown)
+	| string
+	| number
+	| bigint
+	| boolean
+	| symbol
+	| null
+	| undefined
+	| Date
+	| readonly unknown[]
+	| Record<string, unknown>;
 
 /**
  * Schema-side `serverSet` declaration. Two shapes:
  *  - `string[]` — keys only; values are supplied at `implement(...)` time.
  *  - `Record<string, ServerSetSchemaValue>` — keys + values collocated in schema.
  */
-export type SchemaServerSet =
-	| readonly string[]
-	| Readonly<Record<string, ServerSetSchemaValue>>;
+export type SchemaServerSet = readonly string[] | Readonly<Record<string, ServerSetSchemaValue>>;
 
 // ── Query definition ────────────────────────────────────────────────────
 
@@ -69,7 +80,10 @@ export function view<
 	params?: TParams;
 	deps?: string[];
 	tables?: string[];
-}): SyncViewDef & { row?: TRow; params?: TParams } {
+}): SyncViewDef & { row: TRow; params: TParams } {
+	// `row`/`params` are declared required (not optional) on the return type so
+	// `InferRow` / `InferParams` / `RequiresParams` can read them. They are
+	// phantoms either way — `t<T>()` produces no runtime value.
 	return { __view: true, ...opts } as never;
 }
 
@@ -94,7 +108,8 @@ export function presence<
 	state?: TState;
 	params?: TParams;
 	ttlMs?: number;
-}): SyncPresenceDef & { state?: TState; params?: TParams } {
+}): SyncPresenceDef & { state: TState; params: TParams } {
+	// Required on the return type for the same reason as `view()` above.
 	return { __presence: true, ...opts } as never;
 }
 
@@ -112,9 +127,17 @@ type ColumnOf<TDef> = TDef extends { table: DrizzleTableLike }
 		? keyof R & string
 		: string;
 
-/** Constrain serverSet and readonly to valid column names. Accepts either array or object form for serverSet. View/presence entries don't have these fields, so the constraint is empty. */
+/**
+ * Constrain serverSet and readonly to valid column names. Accepts either array
+ * or object form for serverSet.
+ *
+ * View/presence entries carry neither field, so they get `unknown` — the
+ * identity of intersection. `Record<string, never>` reads like "no constraint"
+ * but means "an object with no properties", which every view and presence entry
+ * fails, making both helpers unusable inside `defineSyncQueries`.
+ */
 type FieldsConstraint<TDef> = TDef extends { __view: true } | { __presence: true }
-	? Record<string, never>
+	? unknown
 	: {
 			serverSet?:
 				| readonly ColumnOf<TDef>[]
@@ -184,12 +207,14 @@ export type InferServerSetKeys<TDef> = TDef extends {
  * View defs collapse to `never` to block client-side writes at the type level.
  * Presence defs aren't writable rows; they collapse to `never` too.
  */
-export type InferWritableRow<TQueries extends SyncQueryMap, K extends keyof TQueries> =
-	TQueries[K] extends { __view: true } | { __presence: true }
-		? never
-		: Omit<
-				InferRow<TQueries, K>,
-				| (TQueries[K] extends { readonly: readonly (infer R extends string)[] } ? R : never)
-				| InferServerSetKeys<TQueries[K]>
-				| PkOf<TQueries[K]>
-			>;
+export type InferWritableRow<
+	TQueries extends SyncQueryMap,
+	K extends keyof TQueries,
+> = TQueries[K] extends { __view: true } | { __presence: true }
+	? never
+	: Omit<
+			InferRow<TQueries, K>,
+			| (TQueries[K] extends { readonly: readonly (infer R extends string)[] } ? R : never)
+			| InferServerSetKeys<TQueries[K]>
+			| PkOf<TQueries[K]>
+		>;

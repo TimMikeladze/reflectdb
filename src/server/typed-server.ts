@@ -76,10 +76,9 @@ type RegularKeys<TQueries extends SyncQueryMap> = {
 
 // ── ServerSet key constraint (must match schema-declared fields) ──────
 
-type ServerSetKeys<
-	TQueries extends SyncQueryMap,
-	K extends keyof TQueries,
-> = InferServerSetKeys<TQueries[K]>;
+type ServerSetKeys<TQueries extends SyncQueryMap, K extends keyof TQueries> = InferServerSetKeys<
+	TQueries[K]
+>;
 
 /** True when schema's `serverSet` is the array form (keys only) */
 type IsServerSetArrayForm<
@@ -88,9 +87,30 @@ type IsServerSetArrayForm<
 > = TQueries[K] extends { serverSet: readonly string[] } ? true : false;
 
 /** Value: static or a function receiving auth/params context */
-type ServerSetValue<TAuth extends AuthContext, TQueries extends SyncQueryMap, K extends keyof TQueries> =
-	| unknown
-	| ((ctx: { auth: TAuth; params: ImplementParams<TQueries, K> }) => unknown);
+/**
+ * A serverSet entry: a static value, or a function of the request context.
+ *
+ * The static arm is spelled out rather than written as `unknown`, because
+ * `unknown | ((ctx) => …)` collapses to `unknown` and the callback's parameter
+ * then has no contextual type — every `(ctx) => …` would be an implicit `any`
+ * under `strict`.
+ */
+type ServerSetValue<
+	TAuth extends AuthContext,
+	TQueries extends SyncQueryMap,
+	K extends keyof TQueries,
+> =
+	| ((ctx: { auth: TAuth; params: ImplementParams<TQueries, K> }) => unknown)
+	| string
+	| number
+	| bigint
+	| boolean
+	| symbol
+	| null
+	| undefined
+	| Date
+	| readonly unknown[]
+	| Record<string, unknown>;
 
 /**
  * `serverSet` shape on `implement(...)`:
@@ -106,7 +126,11 @@ type ServerSetOption<
 	? { serverSet?: undefined }
 	: IsServerSetArrayForm<TQueries, K> extends true
 		? { serverSet: { [F in ServerSetKeys<TQueries, K>]: ServerSetValue<TAuth, TQueries, K> } }
-		: { serverSet?: Partial<{ [F in ServerSetKeys<TQueries, K>]: ServerSetValue<TAuth, TQueries, K> }> };
+		: {
+				serverSet?: Partial<{
+					[F in ServerSetKeys<TQueries, K>]: ServerSetValue<TAuth, TQueries, K>;
+				}>;
+			};
 
 // ── Implement options (what goes in server.implement()) ─────────────────
 
@@ -197,10 +221,7 @@ export interface TypedSyncServer<
 	 * mutate that throws `readonly_query`, so direct writes are blocked at runtime
 	 * and `useSync(...).insert/update/remove` is blocked at the type level.
 	 */
-	view<K extends ViewKeys<TQueries> & string>(
-		name: K,
-		fn: ViewFn<TQueries, K, TAuth, TDb>,
-	): void;
+	view<K extends ViewKeys<TQueries> & string>(name: K, fn: ViewFn<TQueries, K, TAuth, TDb>): void;
 	room(pattern: string, callback: RoomCallback<TAuth>): void;
 	rateLimit(config: RateLimitConfig): void;
 	compaction(config: CompactionConfig): void;
@@ -341,12 +362,9 @@ export function createSyncServer<
 			};
 
 			// Priority: implement.tables > schema.tables > query key name
-			const tables =
-				o.tables ?? (def.tables as string[] | undefined) ?? [name];
+			const tables = o.tables ?? (def.tables as string[] | undefined) ?? [name];
 			const pk = (def.pk as string | undefined) ?? "id";
-			const conflict = def.conflict as
-				| import("../core/types.ts").ConflictPolicy
-				| undefined;
+			const conflict = def.conflict as import("../core/types.ts").ConflictPolicy | undefined;
 			const readonly = def.readonly as readonly string[] | undefined;
 			const countHints = def.countHints as boolean | undefined;
 			const defServerSet = def.serverSet;
@@ -393,13 +411,8 @@ export function createSyncServer<
 			});
 		},
 
-		view<K extends ViewKeys<TQueries> & string>(
-			name: K,
-			fn: ViewFn<TQueries, K, TAuth, TDb>,
-		) {
-			const def = config.queries[name] as
-				| (SyncViewDef & { tables?: string[] })
-				| undefined;
+		view<K extends ViewKeys<TQueries> & string>(name: K, fn: ViewFn<TQueries, K, TAuth, TDb>) {
+			const def = config.queries[name] as (SyncViewDef & { tables?: string[] }) | undefined;
 			if (!def || !(def as { __view?: boolean }).__view) {
 				throw new Error(`"${name}" is not declared as a view in defineSyncQueries`);
 			}
@@ -410,10 +423,7 @@ export function createSyncServer<
 				tables,
 				mutate: async () => {
 					const { MutationError } = await import("../core/types.ts");
-					throw new MutationError(
-						"readonly_query",
-						`"${name}" is a view and is read-only`,
-					);
+					throw new MutationError("readonly_query", `"${name}" is a view and is read-only`);
 				},
 			});
 		},
@@ -429,16 +439,13 @@ export function createSyncServer<
 				impl: StoredImpl,
 				ctx: { auth: AuthContext; params: Record<string, unknown> },
 			) =>
-				server.applyServerOp(
-					{ type, table: queryName, rowId, payload },
-					async (stamped) => {
-						const op: ResolvedOp = { ...stamped, type } as ResolvedOp;
-						if (impl.authorize) {
-							await impl.authorize({ type: "write", table: queryName, op }, ctx, config.db);
-						}
-						await impl.mutate!(op, ctx, config.db);
-					},
-				);
+				server.applyServerOp({ type, table: queryName, rowId, payload }, async (stamped) => {
+					const op: ResolvedOp = { ...stamped, type } as ResolvedOp;
+					if (impl.authorize) {
+						await impl.authorize({ type: "write", table: queryName, op }, ctx, config.db);
+					}
+					await impl.mutate!(op, ctx, config.db);
+				});
 
 			return async (req: Request): Promise<Response> => {
 				const url = new URL(req.url);
@@ -474,7 +481,8 @@ export function createSyncServer<
 				// Idempotency-Key header: mutating methods that carry it are
 				// de-duplicated across restarts via the shared processed_ops
 				// store. A replay returns 200 with no body side-effect.
-				const idempotencyKey = req.headers.get("Idempotency-Key") ?? req.headers.get("idempotency-key");
+				const idempotencyKey =
+					req.headers.get("Idempotency-Key") ?? req.headers.get("idempotency-key");
 				const isMutation = req.method !== "GET";
 				if (isMutation && idempotencyKey) {
 					const fresh = await server.reserveOpId(`rest:${queryName}:${idempotencyKey}`);
@@ -492,11 +500,7 @@ export function createSyncServer<
 							// declared in the authorize callback.
 							if (impl.authorize) {
 								try {
-									await impl.authorize(
-										{ type: "read", table: queryName, params },
-										ctx,
-										config.db,
-									);
+									await impl.authorize({ type: "read", table: queryName, params }, ctx, config.db);
 								} catch {
 									return Response.json({ error: "forbidden" }, { status: 403 });
 								}
@@ -529,9 +533,7 @@ export function createSyncServer<
 							// item fails so clients react instead of treating partial
 							// success as full success.
 							if (Array.isArray(raw)) {
-								type Result =
-									| { ok: true; id: string }
-									| { ok: false; id: string; error: string };
+								type Result = { ok: true; id: string } | { ok: false; id: string; error: string };
 								const results: Result[] = [];
 								let anyFailed = false;
 								for (const item of raw as Record<string, unknown>[]) {
@@ -554,10 +556,7 @@ export function createSyncServer<
 								}
 								// Preserve back-compat top-level ids[] = successful ids only.
 								const ids = results.filter((r) => r.ok).map((r) => r.id);
-								return Response.json(
-									{ ids, results },
-									{ status: anyFailed ? 207 : 201 },
-								);
+								return Response.json({ ids, results }, { status: anyFailed ? 207 : 201 });
 							}
 
 							// Single insert

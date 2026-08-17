@@ -159,7 +159,7 @@ describe("ClientStore - Snapshots and Deltas", () => {
 	test("applyDelta insert adds new row", () => {
 		const store = new ClientStore();
 		store.applyDelta("posts", "insert", "r1", { title: "new" }, hlc1, { _row: hlc1 });
-		expect(store.getRow("posts", "r1")!.data).toEqual({ title: "new" });
+		expect(store.getRow("posts", "r1")!.data).toEqual({ id: "r1", title: "new" });
 	});
 
 	test("applyDelta update merges into existing row", () => {
@@ -167,7 +167,7 @@ describe("ClientStore - Snapshots and Deltas", () => {
 		store.setRow("posts", "r1", { title: "old", body: "keep" }, { _row: hlc1 }, hlc1);
 		store.applyDelta("posts", "update", "r1", { title: "new" }, hlc2, { title: hlc2 });
 		const row = store.getRow("posts", "r1");
-		expect(row!.data).toEqual({ title: "new", body: "keep" });
+		expect(row!.data).toEqual({ id: "r1", title: "new", body: "keep" });
 	});
 
 	test("applyDelta delete removes row", () => {
@@ -222,7 +222,7 @@ describe("ClientStore - Snapshots and Deltas", () => {
 			body: hlc3,
 		});
 		const row = store.getRow("posts", "r1")!;
-		expect(row.data).toEqual({ title: "old", body: "fresh" });
+		expect(row.data).toEqual({ id: "r1", title: "old", body: "fresh" });
 		expect(row.colClocks.title).toBe(hlc2);
 		expect(row.colClocks.body).toBe(hlc3);
 	});
@@ -278,8 +278,48 @@ describe("ClientStore - Revert and Optimistic", () => {
 		store.applyOptimistic(op);
 
 		const row = store.getRow("posts", "r1");
-		expect(row!.data).toEqual({ title: "hello" });
+		expect(row!.data).toEqual({ title: "hello", id: "r1" });
 		expect(row!.data!.orgId).toBeUndefined();
+	});
+
+	test("applyOptimistic insert materializes the primary key from rowId", () => {
+		const store = new ClientStore();
+		// The typed API omits the pk from an insert payload, so the optimistic
+		// row would otherwise be the only version of the row without an id.
+		const op = makeOp({ op: "insert", rowId: "r1", payload: { title: "hello" } });
+		store.applyOptimistic(op);
+
+		expect(store.getRow("posts", "r1")!.data).toEqual({ title: "hello", id: "r1" });
+	});
+
+	test("applyDelta insert materializes the pk when the payload omits it", () => {
+		// Eager broadcasts forward the writer's payload verbatim, and a client
+		// payload never carries the pk — so the delta describes a row with no id.
+		const store = new ClientStore();
+		store.applyDelta("posts", "insert", "r1", { title: "hello" }, hlc1);
+
+		expect(store.getRow("posts", "r1")!.data).toEqual({ title: "hello", id: "r1" });
+	});
+
+	test("applyDelta update backfills the pk on a row that lacks one", () => {
+		const store = new ClientStore();
+		store.setRow("posts", "r1", { title: "old" }, { title: hlc1, _row: hlc1 }, hlc1);
+		store.applyDelta("posts", "update", "r1", { title: "new" }, hlc2);
+
+		expect(store.getRow("posts", "r1")!.data).toEqual({ title: "new", id: "r1" });
+	});
+
+	test("applyOptimistic insert honours a custom pk and never overwrites one", () => {
+		const store = new ClientStore();
+		store.setTableMeta({ posts: { serverSet: [], readonly: [], pk: "slug" } });
+
+		store.applyOptimistic(makeOp({ op: "insert", rowId: "r1", payload: { title: "a" } }));
+		expect(store.getRow("posts", "r1")!.data).toEqual({ title: "a", slug: "r1" });
+
+		store.applyOptimistic(
+			makeOp({ op: "insert", rowId: "r2", payload: { title: "b", slug: "explicit" } }),
+		);
+		expect(store.getRow("posts", "r2")!.data).toEqual({ title: "b", slug: "explicit" });
 	});
 
 	test("applyOptimistic update merges into existing", () => {

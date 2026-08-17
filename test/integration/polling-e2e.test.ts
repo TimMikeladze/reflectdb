@@ -151,7 +151,7 @@ describe("Polling end-to-end", () => {
 
 		// Insert locally
 		client.insert("items", "i-1", { name: "Poll Test" });
-		expect(client.getRow("items", "i-1")).toEqual({ name: "Poll Test" });
+		expect(client.getRow("items", "i-1")).toEqual({ id: "i-1", name: "Poll Test" });
 		expect(client.getPendingCount()).toBe(1);
 
 		// Push to server, drain ack
