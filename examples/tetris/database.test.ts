@@ -15,7 +15,9 @@ function databasePath(): string {
 
 afterEach(() => {
 	for (const directory of temporaryDirectories.splice(0)) {
-		rmSync(directory, { recursive: true, force: true });
+		// Windows can hold the file for a beat after the last handle closes, so
+		// retry rather than fail an otherwise green test on a cleanup race.
+		rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
 	}
 });
 

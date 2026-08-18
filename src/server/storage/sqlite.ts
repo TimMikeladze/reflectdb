@@ -24,6 +24,11 @@ export interface BunStatement<Row> {
 	all(...params: SqlValue[]): Row[];
 	get(...params: SqlValue[]): Row | null;
 	run(...params: SqlValue[]): { changes: number };
+	/**
+	 * Releases the statement's sqlite handle. Optional so a hand-rolled stand-in
+	 * need not implement it; `bun:sqlite` always does.
+	 */
+	finalize?(): void;
 }
 
 export interface BunDatabase {
@@ -61,6 +66,23 @@ function loadDatabase(): new (path?: string) => BunDatabase {
 		throw new Error(
 			"createSqliteStorage requires the Bun runtime (bun:sqlite is unavailable). Use createPostgresStorage on Node.",
 		);
+	}
+}
+
+/**
+ * Runs a one-off statement and releases its handle before returning. Statements
+ * built per call — the ones with a variable number of placeholders — would
+ * otherwise stay live until the GC collects them, and `db.close()`
+ * (`sqlite3_close_v2`) leaves the file open while any statement is outstanding.
+ */
+function withStatement<Row, T>(
+	statement: BunStatement<Row>,
+	use: (statement: BunStatement<Row>) => T,
+): T {
+	try {
+		return use(statement);
+	} finally {
+		statement.finalize?.();
 	}
 }
 
@@ -161,9 +183,30 @@ export function createSqliteStorage(
 
 	const cleanupOpsStmt = db.prepare("DELETE FROM _reflectdb_processed_ops WHERE created_at < ?");
 
-	const getMetaStmt = db.prepare<{ value: string }>("SELECT value FROM _reflectdb_meta WHERE key = ?");
+	const getMetaStmt = db.prepare<{ value: string }>(
+		"SELECT value FROM _reflectdb_meta WHERE key = ?",
+	);
 
-	const setMetaStmt = db.prepare("INSERT OR REPLACE INTO _reflectdb_meta (key, value) VALUES (?, ?)");
+	const setMetaStmt = db.prepare(
+		"INSERT OR REPLACE INTO _reflectdb_meta (key, value) VALUES (?, ?)",
+	);
+
+	// `db.close()` is `sqlite3_close_v2`: while any statement is still live the
+	// connection is only marked for closing, and the file stays open until the GC
+	// finalizes them. Windows then refuses to delete the database file. Keeping
+	// the long-lived statements here lets `close()` release them deterministically.
+	const persistentStatements: { finalize?(): void }[] = [
+		getRowStmt,
+		putRowStmt,
+		deleteRowStmt,
+		getRowsStmt,
+		appendOpStmt,
+		deleteOpsStmt,
+		reserveOpStmt,
+		cleanupOpsStmt,
+		getMetaStmt,
+		setMetaStmt,
+	];
 
 	return {
 		async getRow(table: string, rowId: string): Promise<ExistingRow> {
@@ -181,11 +224,14 @@ export function createSqliteStorage(
 		async getRowsByIds(table: string, rowIds: string[]): Promise<Record<string, ExistingRow>> {
 			if (rowIds.length === 0) return {};
 			const placeholders = rowIds.map(() => "?").join(", ");
-			const stmt = db.prepare<{ row_id: string; data: string; col_clocks: string; hlc: string }>(
-				`SELECT row_id, data, col_clocks, hlc FROM _reflectdb_rows WHERE tbl = ? AND row_id IN (${placeholders})`,
+			const results = withStatement(
+				db.prepare<{ row_id: string; data: string; col_clocks: string; hlc: string }>(
+					`SELECT row_id, data, col_clocks, hlc FROM _reflectdb_rows WHERE tbl = ? AND row_id IN (${placeholders})`,
+				),
+				(stmt) => stmt.all(table, ...rowIds),
 			);
 			const out: Record<string, ExistingRow> = {};
-			for (const r of stmt.all(table, ...rowIds)) {
+			for (const r of results) {
 				out[r.row_id] = {
 					row: JSON.parse(r.data),
 					rowHlc: r.hlc,
@@ -268,18 +314,19 @@ export function createSqliteStorage(
 			if (tables.length === 0) return [];
 
 			const placeholders = tables.map(() => "?").join(", ");
-			const stmt = db.prepare<{
-				tbl: string;
-				op: string;
-				row_id: string;
-				payload: string | null;
-				hlc: string;
-				col_clocks: string;
-			}>(
-				`SELECT tbl, op, row_id, payload, hlc, col_clocks FROM _reflectdb_oplog WHERE hlc > ? AND tbl IN (${placeholders}) ORDER BY hlc ASC`,
+			const results = withStatement(
+				db.prepare<{
+					tbl: string;
+					op: string;
+					row_id: string;
+					payload: string | null;
+					hlc: string;
+					col_clocks: string;
+				}>(
+					`SELECT tbl, op, row_id, payload, hlc, col_clocks FROM _reflectdb_oplog WHERE hlc > ? AND tbl IN (${placeholders}) ORDER BY hlc ASC`,
+				),
+				(stmt) => stmt.all(since, ...tables),
 			);
-
-			const results = stmt.all(since, ...tables);
 			return results.map((r) => ({
 				table: r.tbl,
 				op: r.op,
@@ -295,19 +342,23 @@ export function createSqliteStorage(
 			const placeholders = tables.map(() => "?").join(", ");
 			// DISTINCT, not the op rows themselves: resume only needs the set of
 			// affected tables, and a long-offline client's op range is unbounded.
-			const stmt = db.prepare<{ tbl: string }>(
-				`SELECT DISTINCT tbl FROM _reflectdb_oplog WHERE hlc > ? AND tbl IN (${placeholders})`,
+			return withStatement(
+				db.prepare<{ tbl: string }>(
+					`SELECT DISTINCT tbl FROM _reflectdb_oplog WHERE hlc > ? AND tbl IN (${placeholders})`,
+				),
+				(stmt) => stmt.all(since, ...tables).map((r) => r.tbl),
 			);
-			return stmt.all(since, ...tables).map((r) => r.tbl);
 		},
 
 		async getOplogHead(tables: string[]): Promise<string | null> {
 			if (tables.length === 0) return null;
 			const placeholders = tables.map(() => "?").join(", ");
-			const stmt = db.prepare<{ head: string | null }>(
-				`SELECT MAX(hlc) AS head FROM _reflectdb_oplog WHERE tbl IN (${placeholders})`,
+			return withStatement(
+				db.prepare<{ head: string | null }>(
+					`SELECT MAX(hlc) AS head FROM _reflectdb_oplog WHERE tbl IN (${placeholders})`,
+				),
+				(stmt) => stmt.get(...tables)?.head ?? null,
 			);
-			return stmt.get(...tables)?.head ?? null;
 		},
 
 		async deleteOpsBefore(hlc: string): Promise<number> {
@@ -373,6 +424,9 @@ export function createSqliteStorage(
 		},
 
 		close(): void {
+			for (const statement of persistentStatements) {
+				statement.finalize?.();
+			}
 			db.close();
 		},
 	};

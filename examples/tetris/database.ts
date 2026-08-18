@@ -196,6 +196,19 @@ export class TetrisDatabase {
 	}
 
 	close(): void {
-		this.sqlite.close();
+		// Statements first, then the connection: `sqlite3_close_v2` leaves the file
+		// open while any statement is still live, which on Windows keeps the
+		// database locked long after `close()` returned. `storage.close()` releases
+		// reflectdb's own statements and closes this same shared handle.
+		for (const statement of [
+			this.listStatement,
+			this.getStatement,
+			this.saveStatement,
+			this.deleteStatement,
+			this.reapStatement,
+		]) {
+			statement.finalize();
+		}
+		this.storage.close();
 	}
 }
