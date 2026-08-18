@@ -32,6 +32,8 @@ const HELD_REPEAT_MS: Partial<Record<InputAction, number>> = {
 	"soft-drop": 25,
 };
 const HORIZONTAL_DAS_MS = 85;
+/** How long to wait for the server's row before re-sending the join. */
+const JOIN_RETRY_MS = 2_000;
 
 function loadPlayerId(): string {
 	const stored = sessionStorage.getItem("tetris.playerId");
@@ -53,7 +55,7 @@ export function App() {
 
 function Game({ playerId }: { playerId: string }) {
 	const status = useSyncStatus();
-	const { rows: players, insert, update, remove } = useSync("players");
+	const { rows: players, insert, update } = useSync("players");
 	const { rows: standings } = useSync("standings");
 	const me = players.find((player) => player.id === playerId);
 	const ready = isReady(me);
@@ -73,11 +75,22 @@ function Game({ playerId }: { playerId: string }) {
 		setPredicted(next);
 	}, [me]);
 
+	// Retry until the server's own row arrives, not just until a row exists:
+	// the row the client holds right after `insert` is its own optimistic
+	// payload, so a join whose authoritative reply never lands would otherwise
+	// leave the board on "joining the stack…" with nothing to re-trigger it.
+	// `join` is a no-op on a player the server already has, so a late reply and
+	// a retry cannot both create a second player.
 	useEffect(() => {
-		if (status !== "synced" || me) return;
-		seqRef.current++;
-		insert(playerId, { action: "join", inputSeq: seqRef.current });
-	}, [status, me, insert, playerId]);
+		if (status !== "synced" || ready) return;
+		const join = () => {
+			seqRef.current++;
+			insert(playerId, { action: "join", inputSeq: seqRef.current });
+		};
+		join();
+		const retry = setInterval(join, JOIN_RETRY_MS);
+		return () => clearInterval(retry);
+	}, [status, ready, insert, playerId]);
 
 	const send = useCallback(
 		(action: InputAction) => {
@@ -97,14 +110,6 @@ function Game({ playerId }: { playerId: string }) {
 		const timer = setInterval(() => send("heartbeat"), KEEPALIVE_MS);
 		return () => clearInterval(timer);
 	}, [me, send]);
-
-	useEffect(() => {
-		const leave = () => {
-			if (me) remove(playerId);
-		};
-		window.addEventListener("pagehide", leave);
-		return () => window.removeEventListener("pagehide", leave);
-	}, [me, remove, playerId]);
 
 	useEffect(() => {
 		const held = new Map<string, { action: InputAction; nextAt: number; interval: number }>();

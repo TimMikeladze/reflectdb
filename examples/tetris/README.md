@@ -71,11 +71,14 @@ standings. `groupBy: () => "global-game"` means reflectdb executes that shared
 query once per change, rather than once per authenticated subscriber.
 
 **Joining is just inserting your row.** The server ignores any claimed name and
-assigns an unused adjective-noun-number name. The client removes its row when the
-page closes, while a heartbeat and 15-second server timeout cover abrupt network
-loss, so a departed player does not leave a dead well behind. Reopening or
-opening another tab joins the same ongoing game without affecting anyone else's
-run.
+assigns an unused adjective-noun-number name. Departure is detected rather than
+announced: a 4-second heartbeat refreshes `lastSeen` and the server reaps players
+who go quiet for 15 seconds, so a closed tab, a dead network, and a crashed
+browser all clean up the same way. Because the player id lives in
+`sessionStorage`, a refresh reconnects as the *same* player — the bootstrap
+snapshot carries that row back with its name, board, and score intact, so no
+re-join happens at all. Opening another tab joins the same ongoing game as a new player
+without affecting anyone else's run.
 
 **Death is local and non-terminal.** When a queued tetromino cannot spawn, the
 server counts a death, clears that player's board, resets score and lines to
