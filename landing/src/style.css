@@ -259,6 +259,274 @@ h3.sub {
 	}
 }
 
+/* ── live demo ────────────────────────────────────────────────────── */
+
+.demo-feature {
+	display: grid;
+	grid-template-columns: minmax(0, 0.8fr) minmax(420px, 1.2fr);
+	gap: 1px;
+	background: var(--line);
+	border: 1px solid var(--line);
+	border-radius: 4px;
+	overflow: hidden;
+}
+
+.demo-copy {
+	min-width: 0;
+	padding: 28px;
+	background: var(--bg-2);
+}
+
+.demo-status {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	margin-bottom: 16px;
+	color: var(--muted);
+	font-size: 10.5px;
+	letter-spacing: 0.07em;
+	text-transform: uppercase;
+}
+
+.demo-status span {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--accent);
+	box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.demo-copy h4 {
+	margin: 0 0 10px;
+	font-size: 18px;
+	font-weight: 600;
+	letter-spacing: -0.01em;
+}
+
+.demo-copy > p:not(.demo-hint) {
+	margin: 0 0 18px;
+	color: var(--muted);
+	font-size: 13px;
+	line-height: 1.65;
+	overflow-wrap: anywhere;
+}
+
+.demo-facts {
+	list-style: none;
+	margin: 0 0 22px;
+	padding: 0;
+	color: var(--fg);
+	font-size: 12px;
+}
+
+.demo-facts li {
+	position: relative;
+	padding: 5px 0 5px 18px;
+}
+
+.demo-facts li::before {
+	content: "▸";
+	position: absolute;
+	left: 0;
+	color: var(--accent);
+}
+
+.demo-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+
+.demo-hint {
+	margin: 12px 0 0;
+	color: var(--muted);
+	font-size: 10.5px;
+}
+
+.demo-preview {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	color: var(--fg);
+	background:
+		radial-gradient(circle at 50% 45%, rgba(125, 249, 163, 0.08), transparent 45%), var(--bg);
+	border-bottom: 0;
+}
+
+.demo-preview:hover {
+	border-bottom: 0;
+}
+
+.demo-chrome,
+.demo-preview-footer {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 36px;
+	padding: 0 14px;
+	color: var(--muted);
+	background: rgba(255, 255, 255, 0.018);
+	font-size: 10.5px;
+}
+
+.demo-chrome {
+	border-bottom: 1px solid var(--line);
+}
+
+.demo-chrome-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--warn);
+}
+
+.demo-synced {
+	margin-left: auto;
+	color: var(--accent);
+}
+
+.demo-game {
+	display: grid;
+	grid-template-columns: minmax(120px, 1fr) minmax(200px, 1.25fr) minmax(72px, 0.65fr);
+	align-items: center;
+	min-height: 340px;
+	padding: 20px 22px;
+}
+
+.demo-player {
+	display: grid;
+	gap: 7px;
+	align-self: start;
+	padding-top: 34px;
+	font-size: 10px;
+	color: var(--muted);
+}
+
+.demo-player strong {
+	max-width: 15ch;
+	color: var(--fg);
+	font-size: 11px;
+	font-weight: 500;
+	word-break: break-word;
+}
+
+.demo-game svg {
+	display: block;
+	width: 100%;
+	max-height: 300px;
+}
+
+.demo-well {
+	fill: var(--bg-2);
+	stroke: rgba(125, 249, 163, 0.32);
+}
+
+.demo-grid path {
+	fill: none;
+	stroke: rgba(255, 255, 255, 0.035);
+	stroke-width: 0.6;
+}
+
+.demo-piece rect,
+.demo-stack rect {
+	stroke: var(--bg);
+	stroke-width: 1;
+}
+
+.demo-piece rect {
+	fill: var(--accent);
+}
+
+.demo-stack rect:nth-child(3n + 1) {
+	fill: var(--accent-2);
+}
+
+.demo-stack rect:nth-child(3n + 2) {
+	fill: var(--violet);
+}
+
+.demo-stack rect:nth-child(3n) {
+	fill: var(--warn);
+}
+
+.demo-ghost rect {
+	fill: none;
+	stroke: rgba(125, 249, 163, 0.35);
+	stroke-dasharray: 2 2;
+}
+
+.demo-stats {
+	display: grid;
+	gap: 16px;
+}
+
+.demo-stats span {
+	display: grid;
+	gap: 1px;
+}
+
+.demo-stats small {
+	color: var(--muted);
+	font-size: 8px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
+.demo-stats strong {
+	font-size: 15px;
+	font-weight: 500;
+}
+
+.demo-stats .next-piece {
+	color: var(--accent-2);
+	font-size: 24px;
+}
+
+.demo-preview-footer {
+	justify-content: space-between;
+	margin-top: auto;
+	border-top: 1px solid var(--line);
+}
+
+.demo-preview-footer strong {
+	color: var(--accent);
+	font-weight: 500;
+}
+
+@media (max-width: 860px) {
+	.demo-feature {
+		grid-template-columns: 1fr;
+	}
+
+	.demo-preview {
+		min-height: 380px;
+	}
+}
+
+@media (max-width: 540px) {
+	.demo-copy {
+		padding: 22px;
+	}
+
+	.demo-game {
+		grid-template-columns: minmax(180px, 1fr) 62px;
+		min-height: 315px;
+		padding: 14px 12px;
+	}
+
+	.demo-player {
+		display: none;
+	}
+
+	.demo-preview-footer span {
+		display: none;
+	}
+
+	.demo-preview-footer {
+		justify-content: flex-end;
+	}
+}
+
 /* ── code ─────────────────────────────────────────────────────────── */
 
 .code {

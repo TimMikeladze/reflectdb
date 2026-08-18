@@ -3,3 +3,4 @@ bun.lock
 *.db
 *.db-shm
 *.db-wal
+app.js

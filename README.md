@@ -23,6 +23,7 @@ You bring your own types and your own database. reflectdb handles the protocol, 
 
 ## Table of Contents
 
+- [Demos](#demos)
 - [Why reflectdb](#why-reflectdb)
 - [Features](#features)
 - [Use Cases](#use-cases)
@@ -45,7 +46,7 @@ You bring your own types and your own database. reflectdb handles the protocol, 
   - [Auto-generated REST API](#auto-generated-rest-api)
   - [High availability with Postgres](#high-availability-with-postgres)
 - [Whiteboard + Pictionary example](#whiteboard--pictionary-example)
-- [Infinite pong example](#infinite-pong-example)
+- [Infinite Tetris example](#infinite-tetris-example)
 - [Architecture](#architecture)
 - [Core Concepts](#core-concepts)
   - [Hybrid Logical Clocks](#hybrid-logical-clocks)
@@ -74,6 +75,17 @@ You bring your own types and your own database. reflectdb handles the protocol, 
   - [Transport configuration](#transport-configuration)
 - [Development](#development)
 - [License](#license)
+
+## Demos
+
+| Demo | Try it | What it demonstrates |
+|------|--------|----------------------|
+| **Infinite multiplayer Tetris** | [Play live](https://reflectdb-tetris.fly.dev/) · [source](./examples/tetris/) | Optimistic input prediction, server reconciliation and gravity, a live leaderboard, per-player progression, and Bun SQLite persistence in one perpetual game. Open two tabs to add another player. |
+| **Collaborative whiteboard** | [Run locally](./examples/whiteboard/) | Freeform drawing by default, optional Pictionary rounds, authenticated rooms, ephemeral cursors, chat, presence, and per-user query results. |
+
+The Tetris demo runs on one auto-stopping Fly Machine with no volume, so its first
+load after an idle period may take a moment. Its data is intentionally ephemeral
+across deployments and Machine replacement.
 
 ## Why reflectdb
 
@@ -277,7 +289,7 @@ Open two tabs — edits in one appear in the other within a round-trip. Close th
 
 ## Recipes
 
-The repo ships two end-to-end examples: [`examples/whiteboard/`](./examples/whiteboard/), a collaborative drawing app with two modes (freeform and **Pictionary**), and [`examples/pong/`](./examples/pong/), a circular pong arena with no player cap. Between them they exercise the patterns below in one place. The snippets here are minimal, copy-paste-friendly references; see the examples for how they fit together.
+The repo ships two end-to-end examples: [`examples/whiteboard/`](./examples/whiteboard/), a collaborative drawing app with two modes (freeform and **Pictionary**), and [`examples/tetris/`](./examples/tetris/), one perpetual Tetris game with no player cap. Between them they exercise the patterns below in one place. The snippets here are minimal, copy-paste-friendly references; see the examples for how they fit together.
 
 ### WebSocket sync with SQLite + Drizzle
 
@@ -867,33 +879,33 @@ What it demonstrates:
 | Ephemeral cursors per game, scoped via `key: \`cursor:${gameId}\`` | [`app.tsx`](./examples/whiteboard/app.tsx) |
 | Per-table rate limiting (loose for strokes, tight for chat) | `server.rateLimit` in [`server.tsx`](./examples/whiteboard/server.tsx) |
 
-## Infinite pong example
+## Infinite Tetris example
 
-Circular pong with no player cap: [`examples/pong/`](./examples/pong/). The rim is
-divided into one arc per connected player and re-partitions the moment anyone joins
-or drops. Nothing stores the seating chart — both sides derive it from the player
-list, so the arena is a pure function of who is connected.
+One ongoing Tetris game with no player cap: [`examples/tetris/`](./examples/tetris/).
+Every visitor gets a live 10×20 well and a random server-assigned name. Players join
+and leave without rounds or rooms; top out and that player's score resets to zero
+before a fresh run begins immediately.
 
 ```bash
-cd examples/pong
+cd examples/tetris
 bun install
 bun dev
 # open http://localhost:3004 in two tabs — each tab is a player
 ```
 
-No database, no ORM: state is a `Map`, which is all `db` ever has to be.
+Bun SQLite stores the authoritative wells and reflectdb sync log in one WAL
+database. The included Fly.io config runs on one auto-stopping 256 MB Machine.
 
 | Pattern | Where |
 |---------|-------|
-| Server-authoritative loop — `server.interval` + `server.tryLock` at 30 Hz | `tick` in [`server.tsx`](./examples/pong/server.tsx) |
-| Server-origin writes via `server.applyServerOp` (scores) | `tick` in [`server.tsx`](./examples/pong/server.tsx) |
-| `groupBy` — one query execution per arena instead of one per player | `players` / `balls` in [`server.tsx`](./examples/pong/server.tsx) |
-| `serverSet` deriving a column from subscription params | `players` in [`server.tsx`](./examples/pong/server.tsx) |
-| Row ownership enforced with `MutationError` | `players.mutate` in [`server.tsx`](./examples/pong/server.tsx) |
-| `view()` leaderboard, recomputed from `players` | `standings` in [`server.tsx`](./examples/pong/server.tsx) |
-| Typed `presence()` for emoji taunts | `taunts` in [`app.tsx`](./examples/pong/app.tsx) |
-| Rooms scoping each arena, fail-closed | `server.room` in [`server.tsx`](./examples/pong/server.tsx) |
-| Optimistic local paddle + dead reckoning between server frames | `paint` in [`app.tsx`](./examples/pong/app.tsx) |
+| Server-authoritative gravity — `server.interval` + `server.tryLock` | [`server.tsx`](./examples/tetris/server.tsx) |
+| `groupBy` — one query execution for the global game instead of one per player | `players` in [`server.tsx`](./examples/tetris/server.tsx) |
+| `serverSet` refreshing the player heartbeat | `players` in [`server.tsx`](./examples/tetris/server.tsx) |
+| Read-only board, piece, random name, and score fields | [`schema.ts`](./examples/tetris/schema.ts) |
+| Row ownership enforced with `MutationError` | `players.mutate` in [`server.tsx`](./examples/tetris/server.tsx) |
+| `view()` leaderboard, recomputed from `players` | `standings` in [`server.tsx`](./examples/tetris/server.tsx) |
+| Headless game rules and top-out reset tests | [`game.ts`](./examples/tetris/game.ts) / [`game.test.ts`](./examples/tetris/game.test.ts) |
+| Bun SQLite persistence and restart tests | [`database.ts`](./examples/tetris/database.ts) / [`database.test.ts`](./examples/tetris/database.test.ts) |
 
 ## Architecture
 

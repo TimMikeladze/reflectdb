@@ -285,7 +285,7 @@ function Lobby({
 	const { rows, insert, remove } = useSync<Game>("games");
 
 	const [name, setName] = useState("");
-	const [mode, setMode] = useState<"freeform" | "pictionary">("pictionary");
+	const [mode, setMode] = useState<"freeform" | "pictionary">("freeform");
 
 	const sorted = useMemo(
 		() => [...rows].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)),

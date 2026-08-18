@@ -3,6 +3,7 @@ import { escapeHtml, highlight } from "./highlight.ts";
 import * as S from "./snippets.ts";
 
 const REPO = "https://github.com/TimMikeladze/reflectdb";
+const TETRIS_DEMO = "https://reflectdb-tetris.fly.dev/";
 
 /**
  * Cycled through by the hero typewriter. Every one of these is something
@@ -189,6 +190,7 @@ export function renderApp(root: HTMLElement): void {
       <div class="brand">reflectdb</div>
       <nav>
         <a href="#how">how it works</a>
+        <a href="#demos">demo</a>
         <a href="#quickstart">quickstart</a>
         <a href="#concepts">concepts</a>
         <a href="#features">features</a>
@@ -207,6 +209,7 @@ export function renderApp(root: HTMLElement): void {
 
       <div class="cta">
         <a class="btn primary" href="#quickstart">quickstart →</a>
+        <a class="btn" href="#demos">live demo</a>
         <a class="btn" href="#how">how it works</a>
         <a class="btn" href="${REPO}">view on github</a>
       </div>
@@ -216,6 +219,85 @@ export function renderApp(root: HTMLElement): void {
         <button class="copy-btn" data-copy="bun add reflectdb">copy</button>
       </div>
     </section>
+
+    ${section(
+			"demos",
+			"live demo",
+			"See the sync engine move",
+			`
+      <article class="demo-feature">
+        <div class="demo-copy">
+          <div class="demo-status"><span></span>deployed on fly.io · wakes on demand</div>
+          <h4>Infinite multiplayer Tetris</h4>
+          <p>
+            One perpetual game, one server-authoritative well per visitor. Inputs render
+            optimistically, reconcile against Bun SQLite, and fan out to every connected
+            player in real time.
+          </p>
+          <ul class="demo-facts">
+            <li>open two tabs to add another player</li>
+            <li>difficulty rises independently per well</li>
+            <li>top-out resets only your own run</li>
+          </ul>
+          <div class="demo-actions">
+            <a class="btn primary" href="${TETRIS_DEMO}">play the demo →</a>
+            <a class="btn" href="${REPO}/tree/main/examples/tetris">view source</a>
+          </div>
+          <p class="demo-hint">The first load may take a moment while the Fly Machine starts.</p>
+        </div>
+
+        <a class="demo-preview" href="${TETRIS_DEMO}" aria-label="Open the infinite multiplayer Tetris demo">
+          <div class="demo-chrome">
+            <span class="demo-chrome-dot"></span>
+            <span>reflectdb-tetris.fly.dev</span>
+            <span class="demo-synced">synced</span>
+          </div>
+          <div class="demo-game">
+            <div class="demo-player">
+              <span>01</span>
+              <strong>electric-tiger-42</strong>
+              <span>2,840</span>
+            </div>
+            <svg viewBox="0 0 260 300" role="img" aria-label="A stylized Tetris well synchronized in real time">
+              <rect class="demo-well" x="55" y="12" width="150" height="276" rx="2" />
+              <g class="demo-grid">
+                <path d="M70 12V288M85 12V288M100 12V288M115 12V288M130 12V288M145 12V288M160 12V288M175 12V288M190 12V288" />
+                <path d="M55 27H205M55 42H205M55 57H205M55 72H205M55 87H205M55 102H205M55 117H205M55 132H205M55 147H205M55 162H205M55 177H205M55 192H205M55 207H205M55 222H205M55 237H205M55 252H205M55 267H205" />
+              </g>
+              <g class="demo-ghost">
+                <rect x="115" y="222" width="15" height="15" /><rect x="130" y="222" width="15" height="15" />
+                <rect x="130" y="237" width="15" height="15" /><rect x="145" y="237" width="15" height="15" />
+              </g>
+              <g class="demo-piece">
+                <rect x="115" y="72" width="15" height="15" /><rect x="130" y="72" width="15" height="15" />
+                <rect x="130" y="87" width="15" height="15" /><rect x="145" y="87" width="15" height="15" />
+              </g>
+              <g class="demo-stack">
+                <rect x="55" y="267" width="15" height="15" /><rect x="70" y="267" width="15" height="15" />
+                <rect x="85" y="267" width="15" height="15" /><rect x="115" y="267" width="15" height="15" />
+                <rect x="130" y="267" width="15" height="15" /><rect x="145" y="267" width="15" height="15" />
+                <rect x="160" y="267" width="15" height="15" /><rect x="190" y="267" width="15" height="15" />
+                <rect x="55" y="252" width="15" height="15" /><rect x="85" y="252" width="15" height="15" />
+                <rect x="100" y="252" width="15" height="15" /><rect x="115" y="252" width="15" height="15" />
+                <rect x="145" y="252" width="15" height="15" /><rect x="160" y="252" width="15" height="15" />
+                <rect x="175" y="252" width="15" height="15" /><rect x="190" y="252" width="15" height="15" />
+                <rect x="55" y="237" width="15" height="15" /><rect x="70" y="237" width="15" height="15" />
+                <rect x="85" y="237" width="15" height="15" /><rect x="100" y="237" width="15" height="15" />
+                <rect x="160" y="237" width="15" height="15" /><rect x="175" y="237" width="15" height="15" />
+                <rect x="190" y="237" width="15" height="15" />
+              </g>
+            </svg>
+            <div class="demo-stats">
+              <span><small>level</small><strong>04</strong></span>
+              <span><small>lines</small><strong>18</strong></span>
+              <span><small>next</small><strong class="next-piece">▟</strong></span>
+            </div>
+          </div>
+          <div class="demo-preview-footer"><span>← → move · ↑ rotate · space drop</span><strong>play →</strong></div>
+        </a>
+      </article>
+    `,
+		)}
 
     ${section(
 			"how",
