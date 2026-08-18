@@ -1,0 +1,95 @@
+name: Deploy demos
+
+# Demos deploy only from a green main: a broken build should never reach
+# reflectdb-tetris.fly.dev, which the README and the landing page both link to.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  discover:
+    name: Discover demos
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      demos: ${{ steps.find.outputs.demos }}
+      any: ${{ steps.find.outputs.any }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+
+      # An example is deployable when it carries a fly.toml. Discovering them
+      # rather than listing them means a new demo ships its own deployment: add
+      # the fly.toml and the Dockerfile, and this workflow picks it up unchanged.
+      - name: Find deployable examples
+        id: find
+        run: |
+          demos=$(
+            for config in examples/*/fly.toml; do
+              [ -e "$config" ] || continue
+              app=$(sed -n 's/^app *= *"\([^"]*\)".*/\1/p' "$config" | head -n 1)
+              if [ -z "$app" ]; then
+                echo "::error file=$config::fly.toml has no app name"
+                exit 1
+              fi
+              jq -nc \
+                --arg app "$app" \
+                --arg config "$config" \
+                --arg secret "FLY_API_TOKEN_$(printf '%s' "$app" | tr 'a-z-' 'A-Z_')" \
+                '{app: $app, config: $config, secret: $secret}'
+            done | jq -sc .
+          )
+          echo "demos=$demos" >> "$GITHUB_OUTPUT"
+          if [ "$demos" = "[]" ]; then
+            echo "any=false" >> "$GITHUB_OUTPUT"
+            echo "No examples/*/fly.toml found — nothing to deploy." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "any=true" >> "$GITHUB_OUTPUT"
+            echo "$demos" | jq -r '.[] | "- \(.app) (\(.config))"' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  deploy:
+    name: Deploy ${{ matrix.demo.app }}
+    needs: discover
+    if: needs.discover.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      # One broken demo should not hold back the others.
+      fail-fast: false
+      matrix:
+        demo: ${{ fromJSON(needs.discover.outputs.demos) }}
+    concurrency:
+      group: deploy-demo-${{ matrix.demo.app }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@1.6
+
+      # Per-app deploy tokens are the default so one demo's secret cannot deploy
+      # another app; a single FLY_API_TOKEN covering every demo also works.
+      - name: Deploy to Fly
+        env:
+          FLY_API_TOKEN: ${{ secrets[matrix.demo.secret] || secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -z "${FLY_API_TOKEN:-}" ]; then
+            echo "::error::No Fly token for ${{ matrix.demo.app }}. Set the ${{ matrix.demo.secret }} repository secret (fly tokens create deploy -a ${{ matrix.demo.app }}), or a shared FLY_API_TOKEN."
+            exit 1
+          fi
+          # The build context is the repository root, not the example directory:
+          # the demo Dockerfiles build against src/ and the root lockfile.
+          # --ha=false because each demo keeps its state in one ephemeral SQLite
+          # file, so a second Machine would serve a different game.
+          flyctl deploy . --remote-only --ha=false \
+            --config "${{ matrix.demo.config }}"

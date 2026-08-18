@@ -125,3 +125,21 @@ fly apps open -a reflectdb-tetris
 The Docker image prebuilds the browser bundle, then ships only Bun, the reflectdb
 source used by the example, and the Tetris application. No database service,
 volume, release Machine, or always-running Machine is required.
+
+### Automatic deploys
+
+[`.github/workflows/deploy-demos.yml`](../../.github/workflows/deploy-demos.yml)
+redeploys this app on every push to `main` whose CI run passed, and can also be
+run manually from the Actions tab. It deploys every `examples/*/fly.toml` it
+finds, so a new demo only has to ship a `fly.toml` and a `Dockerfile` — the
+workflow needs no edit.
+
+Each demo authenticates with its own app-scoped deploy token, stored as a
+repository secret named after the app (`reflectdb-tetris` →
+`FLY_API_TOKEN_REFLECTDB_TETRIS`). A single `FLY_API_TOKEN` covering every demo
+is used as a fallback. To rotate or add one:
+
+```bash
+fly tokens create deploy -a reflectdb-tetris | gh secret set FLY_API_TOKEN_REFLECTDB_TETRIS
+fly tokens list -a reflectdb-tetris   # `fly tokens revoke <id>` retires the old one
+```
