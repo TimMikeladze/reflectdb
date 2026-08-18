@@ -58,9 +58,14 @@ settings.
 player. `tryLock` skips a tick if the previous broadcast is still running, so
 load causes a slightly late frame rather than an ever-growing queue. A capped
 elapsed time also prevents a stalled process from producing a gravity storm.
+Both a fall interval and a survival second span many ticks, so the leftover
+milliseconds are held in memory beside each player rather than written to the
+row: persisting them would mean a write per player per tick, and reading the
+row back without writing them threw the accumulation away entirely — pieces
+then never fell on their own.
 
-**Bun SQLite is the database.** [`database.ts`](./database.ts) stores complete
-authoritative player and runtime state in `tetris_players`. The same `tetris.db`
+**Bun SQLite is the database.** [`database.ts`](./database.ts) stores the
+complete authoritative player state in `tetris_players`. The same `tetris.db`
 file holds reflectdb's durable rows, operation log, processed operation IDs, and
 server clock. Writes from inputs and gravity ticks use SQLite transactions, with
 WAL mode enabled. Set `TETRIS_DB_PATH` to override the default file location.
@@ -85,12 +90,14 @@ server counts a death, clears that player's board, resets score and lines to
 zero, draws a fresh piece pair, and keeps gravity running. Nobody waits for a
 round restart, and the shared game never ends.
 
-Scoring is deliberately compact: soft drops award one point per cell, hard
-drops two, and one through four cleared lines award 100/300/500/800 points.
-Each player gains a level every five lines in their own run. Their gravity speed
-then follows an accelerating curve from 800 ms per row toward a 75 ms cap,
-independently of every other player. A top-out resets their lines, level, and
-speed along with their score.
+Scoring rewards staying alive. Every second survived pays one point times the
+level reached, and one through four cleared lines award 100/300/500/800 on top.
+Moving and dropping pay nothing — a hard drop is a way to reach the next piece
+sooner, not a way to farm points. Each player gains a level every five lines in
+their own run, so the same second of survival is worth more the deeper the run
+goes. Their gravity speed follows an accelerating curve from 800 ms per row
+toward a 75 ms cap, independently of every other player. A top-out resets their
+lines, level, and speed along with their score.
 
 ## Verification
 
@@ -100,10 +107,12 @@ bunx tsc -p examples/tetris/tsconfig.json --noEmit
 ```
 
 [`game.test.ts`](./game.test.ts) covers rotations, walls and settled-cell
-collisions, hard drops, line clears, server gravity, random-name uniqueness,
-join/leave reaping, and the score-reset-and-continue top-out invariant.
+collisions, hard drops, line clears, gravity accumulating across ticks far
+shorter than one fall interval, survival scoring and its level multiplier,
+random-name uniqueness, join/leave reaping, and the score-reset-and-continue
+top-out invariant.
 
-[`database.test.ts`](./database.test.ts) additionally verifies full runtime-state
+[`database.test.ts`](./database.test.ts) additionally verifies full player-state
 persistence across a database restart, transaction rollback, indexed stale-player
 cleanup, and reflectdb metadata sharing the same SQLite file.
 

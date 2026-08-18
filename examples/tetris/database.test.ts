@@ -32,7 +32,6 @@ describe("TetrisDatabase", () => {
 		player.deaths = 2;
 		player.inputSeq = 14;
 		player.processedSeq = 13;
-		player.fallElapsedMs = 321;
 		first.savePlayer(player);
 		first.close();
 

@@ -3,9 +3,11 @@ import {
 	advancePlayer,
 	applyInput,
 	canPlace,
+	createClock,
 	createPlayer,
 	emptyBoard,
 	gravityMs,
+	LINES_PER_LEVEL,
 	levelFor,
 	lockPiece,
 	publicPlayer,
@@ -13,8 +15,9 @@ import {
 	reap,
 	replayInputs,
 	spawnNext,
+	SURVIVAL_POINTS_PER_SECOND,
 } from "./game.ts";
-import { BOARD_HEIGHT, BOARD_WIDTH, PIECE_KINDS, pieceCells } from "./schema.ts";
+import { BOARD_HEIGHT, BOARD_WIDTH, PIECE_KINDS, TICK_MS, pieceCells } from "./schema.ts";
 
 const fixedRandom = () => 0.42;
 
@@ -43,7 +46,7 @@ describe("tetromino geometry", () => {
 });
 
 describe("continuous runs", () => {
-	test("hard drop settles a piece, scores distance, and immediately queues another", () => {
+	test("hard drop settles a piece and immediately queues another", () => {
 		const player = createPlayer("p1", "test", 0, fixedRandom);
 		player.piece = "I";
 		player.next = "O";
@@ -51,7 +54,8 @@ describe("continuous runs", () => {
 		player.y = 0;
 
 		expect(applyInput(player, "hard-drop", fixedRandom)).toBe(true);
-		expect(player.score).toBe((BOARD_HEIGHT - 1) * 2);
+		// Dropping is a placement control, not a score: only time and lines pay.
+		expect(player.score).toBe(0);
 		expect(player.board.slice(-BOARD_WIDTH).filter(Boolean)).toHaveLength(4);
 		expect(String(player.piece)).toBe("O");
 		expect(player.y).toBe(0);
@@ -96,11 +100,65 @@ describe("continuous runs", () => {
 
 	test("gravity advances the active piece on the server clock", () => {
 		const player = createPlayer("p1", "test", 0, fixedRandom);
+		const clock = createClock();
 		const startY = player.y;
-		expect(advancePlayer(player, gravityMs(player.lines) - 1, fixedRandom)).toBe(false);
+		expect(advancePlayer(player, clock, gravityMs(player.lines) - 1, fixedRandom)).toBe(false);
 		expect(player.y).toBe(startY);
-		expect(advancePlayer(player, 1, fixedRandom)).toBe(true);
+		expect(advancePlayer(player, clock, 1, fixedRandom)).toBe(true);
 		expect(player.y).toBe(startY + 1);
+	});
+
+	test("gravity accumulates across ticks shorter than one fall interval", () => {
+		// The server ticks every TICK_MS; a fall interval is many ticks long. A
+		// clock that forgot the leftover between ticks never reached the
+		// interval at all, and the piece only ever moved when a key was pressed.
+		const player = createPlayer("p1", "test", 0, fixedRandom);
+		const clock = createClock();
+		const ticks = Math.ceil(gravityMs(player.lines) / TICK_MS);
+
+		for (let tick = 0; tick < ticks - 1; tick++) {
+			advancePlayer(player, clock, TICK_MS, fixedRandom);
+		}
+		expect(player.y).toBe(0);
+
+		advancePlayer(player, clock, TICK_MS, fixedRandom);
+		expect(player.y).toBe(1);
+	});
+
+	test("surviving pays by the second, scaled by level", () => {
+		const player = createPlayer("p1", "test", 0, fixedRandom);
+		const clock = createClock();
+
+		// Half a second buys nothing; the remainder carries into the next tick.
+		advancePlayer(player, clock, 500, fixedRandom);
+		expect(player.score).toBe(0);
+		advancePlayer(player, clock, 500, fixedRandom);
+		expect(player.score).toBe(SURVIVAL_POINTS_PER_SECOND);
+
+		// Same second of survival, deeper into the run, pays more.
+		const veteran = createPlayer("p2", "veteran", 0, fixedRandom);
+		veteran.lines = LINES_PER_LEVEL * 3;
+		advancePlayer(veteran, createClock(), 1_000, fixedRandom);
+		expect(veteran.score).toBe(SURVIVAL_POINTS_PER_SECOND * levelFor(veteran.lines));
+		expect(veteran.score).toBeGreaterThan(player.score);
+	});
+
+	test("a top-out gives up every point the run earned", () => {
+		const player = createPlayer("p1", "test", 0, fixedRandom);
+		const clock = createClock();
+		for (let second = 0; second < 5; second++) {
+			advancePlayer(player, clock, 1_000, fixedRandom);
+		}
+		expect(player.score).toBeGreaterThan(0);
+
+		// Block the square the queued piece spawns into.
+		player.next = "T";
+		for (const cell of pieceCells("T", 0, 3, 0)) {
+			player.board[cell.y * BOARD_WIDTH + cell.x] = 7;
+		}
+		expect(spawnNext(player, fixedRandom)).toBe(true);
+		expect(player.score).toBe(0);
+		expect(player.deaths).toBe(1);
 	});
 
 	test("difficulty rises independently from each player's cleared lines", () => {
@@ -121,8 +179,8 @@ describe("continuous runs", () => {
 		advanced.lines = 20;
 		const advancedInterval = gravityMs(advanced.lines);
 
-		expect(advancePlayer(beginner, advancedInterval, fixedRandom)).toBe(false);
-		expect(advancePlayer(advanced, advancedInterval, fixedRandom)).toBe(true);
+		expect(advancePlayer(beginner, createClock(), advancedInterval, fixedRandom)).toBe(false);
+		expect(advancePlayer(advanced, createClock(), advancedInterval, fixedRandom)).toBe(true);
 		expect(beginner.y).toBe(0);
 		expect(advanced.y).toBe(1);
 	});

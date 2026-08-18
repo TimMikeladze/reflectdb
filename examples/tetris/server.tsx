@@ -11,7 +11,15 @@ import { MutationError } from "../../src/core/index.ts";
 import { createSyncServer } from "../../src/server/typed-server.ts";
 import { createBunWsServerTransport } from "../../src/transport/bun-ws.ts";
 import { TetrisDatabase } from "./database.ts";
-import { advancePlayer, applyInput, createPlayer, publicPlayer, randomName } from "./game.ts";
+import {
+	advancePlayer,
+	applyInput,
+	createClock,
+	createPlayer,
+	publicPlayer,
+	randomName,
+} from "./game.ts";
+import type { PlayerClock } from "./game.ts";
 import { IDLE_TIMEOUT_MS, TICK_MS, queries } from "./schema.ts";
 import type { AppAuth, InputAction, Standing } from "./schema.ts";
 
@@ -165,6 +173,24 @@ server.view("standings", (_ctx, db): Standing[] =>
 );
 
 let lastTick = Date.now();
+
+// Gravity and survival scoring accumulate in ticks far shorter than either
+// interval, so the leftover milliseconds live here rather than on the row.
+// Writing them would cost one row write per player per tick; reading the row
+// back each tick and not writing them lost the accumulation entirely, and the
+// pieces never fell on their own. Losing one tick's worth on restart is not
+// something a player can see.
+const clocks = new Map<string, PlayerClock>();
+
+function clockFor(playerId: string): PlayerClock {
+	let clock = clocks.get(playerId);
+	if (!clock) {
+		clock = createClock();
+		clocks.set(playerId, clock);
+	}
+	return clock;
+}
+
 server.interval(TICK_MS, async () => {
 	await server.tryLock("tetris-tick", async () => {
 		const now = Date.now();
@@ -174,10 +200,18 @@ server.interval(TICK_MS, async () => {
 
 		database.transaction(() => {
 			changed = database.reapPlayers(now - IDLE_TIMEOUT_MS) > 0;
-			for (const player of database.listPlayers()) {
-				if (!advancePlayer(player, elapsed)) continue;
+			const live = database.listPlayers();
+			for (const player of live) {
+				if (!advancePlayer(player, clockFor(player.id), elapsed)) continue;
 				database.savePlayer(player);
 				changed = true;
+			}
+			// Reaped and departed players leave their clock behind otherwise.
+			if (clocks.size > live.length) {
+				const ids = new Set(live.map((player) => player.id));
+				for (const id of clocks.keys()) {
+					if (!ids.has(id)) clocks.delete(id);
+				}
 			}
 		});
 

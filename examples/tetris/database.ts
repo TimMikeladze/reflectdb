@@ -2,8 +2,7 @@
 
 import { Database } from "bun:sqlite";
 import { createSqliteStorage } from "../../src/server/storage/sqlite.ts";
-import type { RuntimePlayer } from "./game.ts";
-import type { InputAction, PieceKind } from "./schema.ts";
+import type { InputAction, PieceKind, Player } from "./schema.ts";
 
 interface PlayerRow {
 	id: string;
@@ -23,10 +22,9 @@ interface PlayerRow {
 	bag: string;
 	joined_at: number;
 	last_seen: number;
-	fall_elapsed_ms: number;
 }
 
-function decodePlayer(row: PlayerRow): RuntimePlayer {
+function decodePlayer(row: PlayerRow): Player {
 	return {
 		id: row.id,
 		name: row.name,
@@ -45,7 +43,6 @@ function decodePlayer(row: PlayerRow): RuntimePlayer {
 		bag: JSON.parse(row.bag) as PieceKind[],
 		joinedAt: row.joined_at,
 		lastSeen: row.last_seen,
-		fallElapsedMs: row.fall_elapsed_ms,
 	};
 }
 
@@ -81,8 +78,7 @@ export class TetrisDatabase {
 			processed_seq INTEGER NOT NULL,
 			bag TEXT NOT NULL,
 			joined_at INTEGER NOT NULL,
-			last_seen INTEGER NOT NULL,
-			fall_elapsed_ms INTEGER NOT NULL DEFAULT 0
+			last_seen INTEGER NOT NULL
 		)`);
 		this.sqlite.run(
 			"CREATE INDEX IF NOT EXISTS idx_tetris_players_last_seen ON tetris_players (last_seen)",
@@ -114,13 +110,11 @@ export class TetrisDatabase {
 				string,
 				number,
 				number,
-				number,
 			]
 		>(`INSERT INTO tetris_players (
 			id, name, board, piece, next_piece, rotation, x, y, score, lines,
-			deaths, action, input_seq, processed_seq, bag, joined_at, last_seen,
-			fall_elapsed_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			deaths, action, input_seq, processed_seq, bag, joined_at, last_seen
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			board = excluded.board,
@@ -137,8 +131,7 @@ export class TetrisDatabase {
 			processed_seq = excluded.processed_seq,
 			bag = excluded.bag,
 			joined_at = excluded.joined_at,
-			last_seen = excluded.last_seen,
-			fall_elapsed_ms = excluded.fall_elapsed_ms`);
+			last_seen = excluded.last_seen`);
 		this.deleteStatement = this.sqlite.query<never, [string]>(
 			"DELETE FROM tetris_players WHERE id = ?",
 		);
@@ -151,16 +144,16 @@ export class TetrisDatabase {
 		this.storage = createSqliteStorage({ db: this.sqlite });
 	}
 
-	listPlayers(): RuntimePlayer[] {
+	listPlayers(): Player[] {
 		return this.listStatement.all().map(decodePlayer);
 	}
 
-	getPlayer(id: string): RuntimePlayer | undefined {
+	getPlayer(id: string): Player | undefined {
 		const row = this.getStatement.get(id);
 		return row ? decodePlayer(row) : undefined;
 	}
 
-	savePlayer(player: RuntimePlayer): void {
+	savePlayer(player: Player): void {
 		this.saveStatement.run(
 			player.id,
 			player.name,
@@ -179,7 +172,6 @@ export class TetrisDatabase {
 			JSON.stringify(player.bag),
 			player.joinedAt,
 			player.lastSeen,
-			player.fallElapsedMs,
 		);
 	}
 

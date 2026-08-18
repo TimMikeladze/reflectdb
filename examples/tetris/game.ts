@@ -10,9 +10,27 @@ import {
 } from "./schema.ts";
 import type { InputAction, PieceKind, Player } from "./schema.ts";
 
-export interface RuntimePlayer extends Player {
+/**
+ * Sub-second tick state, held beside the player rather than in it.
+ *
+ * Gravity has to accumulate across ticks that are individually far shorter
+ * than one fall interval — 50 ms ticks against an 800 ms interval at level 1.
+ * Keeping the accumulator on the row would mean a database write per player
+ * per tick just to carry 50 ms forward, and reading the row back each tick
+ * without writing it simply threw the accumulation away: the piece then never
+ * fell on its own at all.
+ */
+export interface PlayerClock {
 	fallElapsedMs: number;
+	aliveElapsedMs: number;
 }
+
+export function createClock(): PlayerClock {
+	return { fallElapsedMs: 0, aliveElapsedMs: 0 };
+}
+
+/** Points per second survived, multiplied by the level the run has reached. */
+export const SURVIVAL_POINTS_PER_SECOND = 1;
 
 export interface SequencedInput {
 	seq: number;
@@ -75,7 +93,7 @@ function refillBag(random: () => number): PieceKind[] {
 
 const PREDICTION_QUEUE_SIZE = PIECE_KINDS.length * 3;
 
-function takePiece(player: Pick<RuntimePlayer, "bag">, random: () => number): PieceKind {
+function takePiece(player: Pick<Player, "bag">, random: () => number): PieceKind {
 	// Buffer several complete bags. Even a burst of hard drops can then be
 	// predicted exactly without the client inventing any random pieces.
 	while (player.bag.length < PREDICTION_QUEUE_SIZE) player.bag.push(...refillBag(random));
@@ -92,8 +110,8 @@ export function createPlayer(
 	name: string,
 	now = Date.now(),
 	random = Math.random,
-): RuntimePlayer {
-	const player: RuntimePlayer = {
+): Player {
+	const player: Player = {
 		id,
 		name,
 		board: emptyBoard(),
@@ -111,7 +129,6 @@ export function createPlayer(
 		joinedAt: now,
 		lastSeen: now,
 		bag: [],
-		fallElapsedMs: 0,
 	};
 	player.piece = takePiece(player, random);
 	player.next = takePiece(player, random);
@@ -119,21 +136,16 @@ export function createPlayer(
 	return player;
 }
 
-export function publicPlayer(player: RuntimePlayer): Player {
-	const { fallElapsedMs: _fallElapsedMs, ...row } = player;
-	return { ...row, board: [...row.board], bag: [...row.bag] };
+export function publicPlayer(player: Player): Player {
+	return { ...player, board: [...player.board], bag: [...player.bag] };
 }
 
 /** Rebuild the immediate client view from a server snapshot plus unacked keys. */
-export function replayInputs(
-	authoritative: Player,
-	inputs: readonly SequencedInput[],
-): RuntimePlayer {
-	const predicted: RuntimePlayer = {
+export function replayInputs(authoritative: Player, inputs: readonly SequencedInput[]): Player {
+	const predicted: Player = {
 		...authoritative,
 		board: [...authoritative.board],
 		bag: [...authoritative.bag],
-		fallElapsedMs: 0,
 	};
 	for (const input of inputs) {
 		if (input.seq <= authoritative.processedSeq) continue;
@@ -164,7 +176,7 @@ export function landingY(player: Player): number {
 	return y;
 }
 
-function clearLines(player: RuntimePlayer): number {
+function clearLines(player: Player): number {
 	const rows: number[][] = [];
 	let cleared = 0;
 	for (let y = 0; y < BOARD_HEIGHT; y++) {
@@ -177,7 +189,7 @@ function clearLines(player: RuntimePlayer): number {
 	return cleared;
 }
 
-function resetAfterDeath(player: RuntimePlayer, random: () => number): void {
+function resetAfterDeath(player: Player, random: () => number): void {
 	player.board = emptyBoard();
 	player.score = 0;
 	player.lines = 0;
@@ -188,24 +200,22 @@ function resetAfterDeath(player: RuntimePlayer, random: () => number): void {
 	player.rotation = 0;
 	player.x = spawnX(player.piece);
 	player.y = 0;
-	player.fallElapsedMs = 0;
 }
 
 /** Spawn the queued piece; a blocked spawn is a death and immediate fresh run. */
-export function spawnNext(player: RuntimePlayer, random = Math.random): boolean {
+export function spawnNext(player: Player, random = Math.random): boolean {
 	player.piece = player.next;
 	player.next = takePiece(player, random);
 	player.rotation = 0;
 	player.x = spawnX(player.piece);
 	player.y = 0;
-	player.fallElapsedMs = 0;
 	if (canPlace(player, player.piece, player.rotation, player.x, player.y)) return false;
 	resetAfterDeath(player, random);
 	return true;
 }
 
 /** Settle the active piece, clear rows, score them, and continue with the queue. */
-export function lockPiece(player: RuntimePlayer, random = Math.random): boolean {
+export function lockPiece(player: Player, random = Math.random): boolean {
 	const value = pieceValue(player.piece);
 	for (const cell of pieceCells(player.piece, player.rotation, player.x, player.y)) {
 		if (cell.y >= 0) player.board[cell.y * BOARD_WIDTH + cell.x] = value;
@@ -217,7 +227,7 @@ export function lockPiece(player: RuntimePlayer, random = Math.random): boolean 
 	return spawnNext(player, random);
 }
 
-function move(player: RuntimePlayer, dx: number, dy: number): boolean {
+function move(player: Player, dx: number, dy: number): boolean {
 	if (!canPlace(player, player.piece, player.rotation, player.x + dx, player.y + dy)) {
 		return false;
 	}
@@ -226,7 +236,7 @@ function move(player: RuntimePlayer, dx: number, dy: number): boolean {
 	return true;
 }
 
-function rotate(player: RuntimePlayer, direction: 1 | -1): boolean {
+function rotate(player: Player, direction: 1 | -1): boolean {
 	const nextRotation = (player.rotation + direction + 4) % 4;
 	for (const kick of [0, -1, 1, -2, 2]) {
 		if (canPlace(player, player.piece, nextRotation, player.x + kick, player.y)) {
@@ -239,11 +249,7 @@ function rotate(player: RuntimePlayer, direction: 1 | -1): boolean {
 }
 
 /** Apply one validated user command. Returns whether visible game state changed. */
-export function applyInput(
-	player: RuntimePlayer,
-	action: InputAction,
-	random = Math.random,
-): boolean {
+export function applyInput(player: Player, action: InputAction, random = Math.random): boolean {
 	switch (action) {
 		case "left":
 			return move(player, -1, 0);
@@ -254,19 +260,16 @@ export function applyInput(
 		case "rotate-ccw":
 			return rotate(player, -1);
 		case "soft-drop":
-			if (move(player, 0, 1)) {
-				player.score++;
-				return true;
-			}
+			// Dropping is a placement control, not a way to farm points: the
+			// score comes from time survived and lines cleared, so hammering
+			// the drop key only gets you to the next piece sooner.
+			if (move(player, 0, 1)) return true;
 			lockPiece(player, random);
 			return true;
-		case "hard-drop": {
-			const start = player.y;
+		case "hard-drop":
 			player.y = landingY(player);
-			player.score += (player.y - start) * 2;
 			lockPiece(player, random);
 			return true;
-		}
 		case "join":
 		case "heartbeat":
 			return false;
@@ -285,24 +288,42 @@ export function gravityMs(lines: number): number {
 	return Math.max(75, Math.round(800 * 0.82 ** (level - 1)));
 }
 
-/** Advance gravity. Large pauses are capped so background tabs cannot cause storms. */
+/**
+ * Advance one player by `elapsedMs` of wall clock: pay out survival points and
+ * step gravity. Large pauses are capped so a stalled process cannot cause a
+ * gravity storm, and `clock` carries the remainder that is shorter than a
+ * second or a fall interval into the next tick.
+ */
 export function advancePlayer(
-	player: RuntimePlayer,
+	player: Player,
+	clock: PlayerClock,
 	elapsedMs: number,
 	random = Math.random,
 ): boolean {
-	player.fallElapsedMs += Math.min(Math.max(elapsedMs, 0), 1_000);
+	const elapsed = Math.min(Math.max(elapsedMs, 0), 1_000);
 	let changed = false;
+
+	// Surviving is the score. A long clean run at a high level outpays a burst
+	// of fast drops, and a top-out costs every point it earned.
+	clock.aliveElapsedMs += elapsed;
+	while (clock.aliveElapsedMs >= 1_000) {
+		clock.aliveElapsedMs -= 1_000;
+		player.score += SURVIVAL_POINTS_PER_SECOND * levelFor(player.lines);
+		changed = true;
+	}
+
+	clock.fallElapsedMs += elapsed;
 	let steps = 0;
-	while (player.fallElapsedMs >= gravityMs(player.lines) && steps++ < 12) {
-		player.fallElapsedMs -= gravityMs(player.lines);
+	while (clock.fallElapsedMs >= gravityMs(player.lines) && steps++ < 12) {
+		clock.fallElapsedMs -= gravityMs(player.lines);
 		if (!move(player, 0, 1)) lockPiece(player, random);
 		changed = true;
 	}
+
 	return changed;
 }
 
-export function reap(players: Map<string, RuntimePlayer>, now: number): number {
+export function reap(players: Map<string, Player>, now: number): number {
 	let removed = 0;
 	for (const [id, player] of players) {
 		if (now - player.lastSeen > IDLE_TIMEOUT_MS) {
