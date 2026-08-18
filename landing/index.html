@@ -1,47 +1,57 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
-    <title>reflectdb — real-time TypeScript sync engine</title>
-    <meta
-      name="description"
-      content="A real-time sync engine for TypeScript. Offline-first, optimistic local writes, automatic conflict resolution, end-to-end type inference."
-    />
-    <link rel="canonical" href="https://reflectdb.dev/" />
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta name="color-scheme" content="dark" />
+		<title>reflectdb — real-time TypeScript sync engine</title>
+		<meta
+			name="description"
+			content="A real-time sync engine for TypeScript. Offline-first, optimistic local writes, automatic conflict resolution, end-to-end type inference."
+		/>
+		<link rel="canonical" href="https://reflectdb.dev/" />
 
-    <!-- Social card. The image is generated from og/index.html by `bun run og`;
-         edit that file rather than the PNG. -->
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="reflectdb" />
-    <meta property="og:url" content="https://reflectdb.dev/" />
-    <meta property="og:title" content="real-time TypeScript sync engine" />
-    <meta
-      property="og:description"
-      content="Keep a server-side database in sync with any number of browser clients — offline-first, optimistic local writes, automatic conflict resolution, end-to-end type inference."
-    />
-    <meta property="og:image" content="https://reflectdb.dev/og.png" />
-    <meta property="og:image:type" content="image/png" />
-    <meta property="og:image:width" content="2400" />
-    <meta property="og:image:height" content="1260" />
-    <meta
-      property="og:image:alt"
-      content="reflectdb — real-time sync engine for TypeScript, with a useSync code sample and rows syncing between browsers."
-    />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="real-time TypeScript sync engine" />
-    <meta
-      name="twitter:description"
-      content="Offline-first sync between your database and any number of browser clients, with optimistic writes and end-to-end types."
-    />
-    <meta name="twitter:image" content="https://reflectdb.dev/og.png" />
+		<!-- Social card. Every network below unfurls the same 1200x630 (1.91:1)
+         image, generated from og/index.html by `bun run og` — edit that file
+         rather than the PNG. The explicit width/height let WhatsApp and Telegram
+         lay the preview out before the image finishes downloading. -->
+		<meta property="og:type" content="website" />
+		<meta property="og:site_name" content="reflectdb" />
+		<meta property="og:locale" content="en_US" />
+		<meta property="og:url" content="https://reflectdb.dev/" />
+		<meta property="og:title" content="reflectdb — real-time sync engine for TypeScript" />
+		<meta
+			property="og:description"
+			content="Keep a server-side database in sync with any number of browser clients — offline-first, optimistic local writes, automatic conflict resolution, end-to-end type inference."
+		/>
+		<meta property="og:image" content="https://reflectdb.dev/og.png" />
+		<meta property="og:image:secure_url" content="https://reflectdb.dev/og.png" />
+		<meta property="og:image:type" content="image/png" />
+		<meta property="og:image:width" content="2400" />
+		<meta property="og:image:height" content="1260" />
+		<meta
+			property="og:image:alt"
+			content="reflectdb — real-time sync engine for TypeScript. A browser writes update(id, { done: true }) locally, the op travels to the server, and every other client re-renders from a typed useSync query."
+		/>
 
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="stylesheet" href="/src/style.css" />
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content="reflectdb — real-time sync engine for TypeScript" />
+		<meta
+			name="twitter:description"
+			content="Offline-first sync between your database and any number of browser clients, with optimistic writes and end-to-end types."
+		/>
+		<meta name="twitter:image" content="https://reflectdb.dev/og.png" />
+		<meta
+			name="twitter:image:alt"
+			content="reflectdb — real-time sync engine for TypeScript, showing an optimistic write syncing to every other client."
+		/>
+
+		<meta name="theme-color" content="#0a0a0b" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<link rel="stylesheet" href="/src/style.css" />
+	</head>
+	<body>
+		<div id="app"></div>
+		<script type="module" src="/src/main.ts"></script>
+	</body>
 </html>

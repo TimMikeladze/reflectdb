@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<title>reflectdb tetris — social card</title>
+		<link rel="stylesheet" href="./card.css" />
+		<style>
+			/* Source for public/og-tetris.png — the card the Fly demo unfurls with.
+         The demo's own palette (lime, not the site green) so the preview and the
+         page a click later look like the same thing. */
+			html,
+			body,
+			.card {
+				width: 1200px;
+				height: 630px;
+			}
+			.card {
+				display: flex;
+				flex-direction: column;
+				padding: 54px 60px;
+				background:
+					radial-gradient(620px 320px at 2% -12%, rgba(184, 255, 99, 0.1), transparent 70%), #08090d;
+			}
+			.card .brand .mark span {
+				background: var(--lime);
+			}
+			:root {
+				--lime: #b8ff63;
+				--danger: #ff647c;
+			}
+
+			.split {
+				flex: 1;
+				display: grid;
+				grid-template-columns: 1fr 340px;
+				gap: 48px;
+				align-items: center;
+				padding: 16px 0;
+			}
+			.left h1 {
+				font-size: 50px;
+				max-width: 15ch;
+			}
+			.left h1 .accent {
+				color: var(--lime);
+			}
+			.left .sub {
+				font-size: 20px;
+				max-width: 36ch;
+			}
+			.eyebrow .dot,
+			.install .prompt {
+				background: none;
+				color: var(--lime);
+			}
+			.eyebrow .dot {
+				background: var(--lime);
+			}
+
+			.foot {
+				display: flex;
+				align-items: center;
+				gap: 16px;
+			}
+			.foot .chips {
+				margin-left: auto;
+			}
+
+			/* The well, drawn as a grid of cells. Big flat blocks survive being
+         shrunk to a 200px thumbnail, which a screenshot of the real game would
+         not. */
+			.well {
+				justify-self: end;
+				display: grid;
+				grid-template-columns: repeat(10, 1fr);
+				gap: 4px;
+				width: 340px;
+				padding: 12px;
+				border: 1px solid var(--line-2);
+				border-radius: 12px;
+				background: #090a0f;
+			}
+			.well i {
+				aspect-ratio: 1;
+				border-radius: 3px;
+				background: rgba(255, 255, 255, 0.035);
+			}
+			.well i.a {
+				background: var(--lime);
+			}
+			.well i.b {
+				background: var(--accent-2);
+			}
+			.well i.c {
+				background: var(--warn);
+			}
+			.well i.d {
+				background: var(--violet);
+			}
+			.well i.e {
+				background: var(--danger);
+			}
+			/* The row about to clear, lit up. */
+			.well i.hot {
+				background: rgba(184, 255, 99, 0.35);
+			}
+		</style>
+	</head>
+	<body>
+		<div class="card">
+			<div class="brand">
+				<span class="mark"><span></span></span>
+				reflectdb
+				<span class="url">reflectdb-tetris.fly.dev</span>
+			</div>
+
+			<div class="split">
+				<div class="left">
+					<div class="eyebrow"><span class="dot"></span>live demo · open in two tabs</div>
+					<h1>Infinite <span class="accent">multiplayer</span> Tetris</h1>
+					<p class="sub">
+						One perpetual game, one well per player. Inputs render
+						<span class="k">instantly</span>, reconcile against the server, and fan out to everyone
+						watching.
+					</p>
+				</div>
+
+				<div class="well">
+					<i></i><i></i><i></i><i class="d"></i><i class="d"></i><i></i><i></i><i></i><i></i><i></i>
+					<i></i><i></i><i></i><i></i><i class="d"></i><i class="d"></i><i></i><i></i><i></i><i></i>
+					<i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i> <i></i><i></i
+					><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i> <i></i><i></i><i></i><i></i
+					><i></i><i></i><i></i><i class="b"></i><i class="b"></i><i class="b"></i> <i></i><i></i
+					><i></i><i></i><i></i><i></i><i></i><i></i><i class="b"></i><i></i> <i class="c"></i
+					><i class="c"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+					<i class="c"></i><i class="c"></i><i></i><i></i><i></i><i class="a"></i><i class="a"></i
+					><i></i><i></i><i></i> <i></i><i></i><i></i><i></i><i class="a"></i><i class="a"></i
+					><i></i><i></i><i class="e"></i><i class="e"></i> <i class="hot"></i><i class="hot"></i
+					><i class="hot"></i><i class="hot"></i><i class="hot"></i><i class="hot"></i
+					><i class="hot"></i><i class="hot"></i><i class="hot"></i><i class="hot"></i>
+					<i class="d"></i><i class="d"></i><i></i><i class="c"></i><i class="e"></i
+					><i class="e"></i><i></i><i class="b"></i><i class="a"></i><i class="a"></i>
+				</div>
+			</div>
+
+			<div class="foot">
+				<div class="install"><span class="prompt">$</span>bun add reflectdb</div>
+				<div class="chips">
+					<span>optimistic input</span><span>server reconciliation</span
+					><span>live leaderboard</span>
+				</div>
+			</div>
+		</div>
+	</body>
+</html>

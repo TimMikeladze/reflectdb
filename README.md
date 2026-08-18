@@ -1548,6 +1548,33 @@ bun install
 | `bun run verify:exports` | Check the `exports` map against `dist/`, and type-check the emitted declarations without ambient Bun/React globals (run after `build`) |
 | `bun run verify:node` | Install the packed tarball into a throwaway Node project and check every subpath imports, requires, and type-checks there under both export conditions (run after `build`; needs `node` + `npm`) |
 
+### Landing page and social cards
+
+The site at [reflectdb.dev](https://reflectdb.dev) lives in `landing/`:
+
+```bash
+cd landing
+bun install
+bun run dev       # vite dev server
+bun run og        # regenerate the social cards in landing/public
+```
+
+`bun run og` renders every card in `landing/og/` with your local Chrome (set
+`CHROME_PATH` if it lives somewhere unusual) and writes the PNGs the pages
+reference:
+
+| Card | Output | Size | Used by |
+|------|--------|------|---------|
+| `og/index.html` | `public/og.png` | 1200x630 at 2x | reflectdb.dev |
+| `og/tetris.html` | `public/og-tetris.png` | 1200x630 at 2x | the Tetris demo — served from reflectdb.dev, since the Fly Machine sleeps |
+| `og/github.html` | `public/og-github.png` | 1280x640 at 2x | this repository's social preview, uploaded by hand under Settings → Social preview |
+
+Edit the HTML, not the PNGs. 1200x630 is the one ratio X, Facebook, LinkedIn,
+Slack, Discord, Telegram, Mastodon and iMessage all unfurl without cropping, and
+each card has to stay under 300 kB or WhatsApp silently downgrades it to a small
+thumbnail — the script renders at the largest scale factor that fits, and fails
+if a card is oversized or the wrong shape.
+
 ### Project Structure
 
 ```
@@ -1573,7 +1600,7 @@ src/
 - Test: `bun:test`
 - Lint: oxlint
 - Format: oxfmt
-- CI: GitHub Actions (Ubuntu + macOS + Windows)
+- CI: GitHub Actions (Ubuntu + macOS)
 
 ## License
 

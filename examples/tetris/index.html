@@ -5,6 +5,48 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<meta name="color-scheme" content="dark" />
 		<title>reflectdb · infinite tetris</title>
+		<meta
+			name="description"
+			content="One perpetual multiplayer Tetris game, synced with reflectdb. Inputs render optimistically, reconcile against the server, and fan out to every player."
+		/>
+		<link rel="canonical" href="https://reflectdb-tetris.fly.dev/" />
+
+		<!-- Social card. The image is served from reflectdb.dev rather than this
+		     Machine: the demo auto-stops when idle, and a scraper that hits a cold
+		     start would give up on the image before it woke. Source and regeneration
+		     live in landing/og. -->
+		<meta property="og:type" content="website" />
+		<meta property="og:site_name" content="reflectdb" />
+		<meta property="og:locale" content="en_US" />
+		<meta property="og:url" content="https://reflectdb-tetris.fly.dev/" />
+		<meta property="og:title" content="Infinite multiplayer Tetris — built with reflectdb" />
+		<meta
+			property="og:description"
+			content="One perpetual game, one well per player. Inputs render instantly, reconcile against the server, and fan out to everyone watching."
+		/>
+		<meta property="og:image" content="https://reflectdb.dev/og-tetris.png" />
+		<meta property="og:image:secure_url" content="https://reflectdb.dev/og-tetris.png" />
+		<meta property="og:image:type" content="image/png" />
+		<meta property="og:image:width" content="2400" />
+		<meta property="og:image:height" content="1260" />
+		<meta
+			property="og:image:alt"
+			content="Infinite multiplayer Tetris, built with reflectdb — a Tetris well with a completed row lit up, beside the demo's URL."
+		/>
+
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content="Infinite multiplayer Tetris — built with reflectdb" />
+		<meta
+			name="twitter:description"
+			content="One perpetual game, one well per player. Open it in two tabs to add another player."
+		/>
+		<meta name="twitter:image" content="https://reflectdb.dev/og-tetris.png" />
+		<meta
+			name="twitter:image:alt"
+			content="A Tetris well with a completed row lit up, beside the reflectdb wordmark."
+		/>
+
+		<meta name="theme-color" content="#08090d" />
 		<style>
 			* {
 				box-sizing: border-box;

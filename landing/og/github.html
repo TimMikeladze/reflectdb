@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<title>reflectdb — repository social preview</title>
+		<link rel="stylesheet" href="./card.css" />
+		<style>
+			/* Source for public/og-github.png — 1280x640, the size GitHub asks for
+         under Settings → Social preview. GitHub scales it down hard in feeds and
+         search, so this card is deliberately barer than the site one: a wordmark,
+         one claim, one install line. */
+			html,
+			body,
+			.card {
+				width: 1280px;
+				height: 640px;
+			}
+			.card {
+				display: flex;
+				flex-direction: column;
+				justify-content: center;
+				align-items: center;
+				text-align: center;
+				padding: 60px;
+				gap: 30px;
+			}
+
+			.brand {
+				font-size: 44px;
+				gap: 18px;
+			}
+			.brand .mark {
+				width: 54px;
+				height: 54px;
+				border-radius: 12px;
+			}
+			.brand .mark span {
+				width: 24px;
+				height: 4px;
+				box-shadow:
+					0 -9px 0 var(--accent-2),
+					0 9px 0 var(--warn);
+			}
+
+			h1 {
+				margin: 0;
+				font-size: 46px;
+				max-width: 20ch;
+			}
+			.sub {
+				margin: 0;
+				font-size: 22px;
+				max-width: 52ch;
+			}
+			.install {
+				align-self: center;
+			}
+			.chips {
+				justify-content: center;
+				flex-wrap: wrap;
+				max-width: 900px;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="card">
+			<div class="brand">
+				<span class="mark"><span></span></span>
+				reflectdb
+			</div>
+
+			<h1>Real-time sync engine for <span class="accent">TypeScript</span></h1>
+			<p class="sub">
+				Keep a server-side database in sync with any number of browser clients —
+				offline-first, optimistic writes, conflicts resolved, typed end to end.
+			</p>
+
+			<div class="install"><span class="prompt">$</span>bun add reflectdb</div>
+
+			<div class="chips">
+				<span>React</span><span>Svelte</span><span>vanilla JS</span><span>Postgres</span
+				><span>SQLite</span><span>Drizzle</span><span>Kysely</span>
+			</div>
+		</div>
+	</body>
+</html>
