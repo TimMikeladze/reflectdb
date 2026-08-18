@@ -193,8 +193,7 @@ describe("result cache commit", () => {
 		await tick();
 
 		// Reader's socket drops everything for the first write.
-		transport.failSend = (clientId, message) =>
-			clientId === "reader" && message.type === "delta";
+		transport.failSend = (clientId, message) => clientId === "reader" && message.type === "delta";
 
 		transport.messageHandler!("writer", {
 			type: "ops",
@@ -285,6 +284,85 @@ describe("result cache commit", () => {
 		const deltas = deltasFor(transport, "reader");
 		expect(deltas.some((d) => d.op === "insert" && d.rowId === "r1")).toBe(true);
 		expect(deltas.some((d) => d.op === "delete" && d.rowId === "r1")).toBe(true);
+		await server.close();
+	});
+});
+
+describe("a writer's own cached result", () => {
+	test("re-creating a rowId the writer deleted resends the whole row", async () => {
+		const transport = createMockTransport();
+		// A server-materialized row: the client only ever writes `seq`, the
+		// server owns `board` and `name`. Deleting and re-creating the same id
+		// is the shape that broke — an empty board on both sides of the delete
+		// meant the diff had nothing to report for `board`.
+		const rows = new Map<string, Record<string, unknown>>();
+		let nextName = 1;
+
+		const server = createServer({ db: {}, transport });
+		server.auth(async () => ({ userId: "u1" }));
+		server.query("boards", () => Promise.resolve([...rows.values()]), {
+			tables: ["boards"],
+			mutate: async (op) => {
+				if (op.type === "delete") {
+					rows.delete(op.rowId);
+					return;
+				}
+				const existing = rows.get(op.rowId);
+				rows.set(op.rowId, {
+					id: op.rowId,
+					name: existing?.name ?? `board-${nextName++}`,
+					board: existing?.board ?? "empty",
+					seq: (op.payload as { seq: number }).seq,
+				});
+			},
+		});
+
+		await connectClient(transport, "writer");
+		transport.messageHandler!("writer", { type: "sync_declare", table: "boards" });
+		await tick();
+
+		const send = async (op: "insert" | "delete", seq: number) => {
+			transport.messageHandler!("writer", {
+				type: "ops",
+				token: "valid",
+				ops: [
+					{
+						id: `op-${op}-${seq}`,
+						table: "boards",
+						op,
+						rowId: "w1",
+						payload: op === "delete" ? null : { seq },
+						hlc: packHlc({ ms: Date.now() + seq, counter: 0, nodeId: "client:writer" }),
+					},
+				],
+			});
+			await tick();
+		};
+
+		// The writer is excluded from the broadcast of its own op, so — like the
+		// Tetris example — the server re-queries once afterwards so the writer
+		// receives the server's version of the row it just wrote. That pass is
+		// coalesced, which is what makes the delete invisible: a leave and the
+		// re-join that follows it settle into a single re-query.
+		const reconcile = async () => {
+			await server.notifyChange("boards");
+			await tick();
+		};
+
+		await send("insert", 1);
+		await reconcile();
+		transport.sentMessages.length = 0;
+
+		await send("delete", 2);
+		await send("insert", 3);
+		await reconcile();
+
+		const deltas = deltasFor(transport, "writer").filter((d) => d.rowId === "w1");
+		expect(deltas.length).toBe(1);
+		expect(deltas[0]!.op).toBe("insert");
+		// `board` is identical to the deleted row's, so a diff against that dead
+		// row would have dropped it and left the client with a partial row.
+		expect(deltas[0]!.payload).toEqual({ id: "w1", name: "board-2", board: "empty", seq: 3 });
 		await server.close();
 	});
 });

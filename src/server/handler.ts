@@ -371,6 +371,8 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 			receiveClientHlc: (hlc) => this.clock.receive(hlc),
 			send: (clientId, message) => this.transport.send(clientId, message),
 			broadcastChanges: (table, excludeClientId) => this.broadcastChanges(table, excludeClientId),
+			forgetWriterRow: (table, clientId, rowId) =>
+				this.broadcast.forgetWriterRow(table, clientId, rowId),
 		});
 
 		this.transport.onConnect((clientId) => {

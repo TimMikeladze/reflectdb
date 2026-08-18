@@ -481,7 +481,25 @@ export class ClientStore {
 			// and applies the stale insert.
 			this.setRow(op.table, op.rowId, null, { _row: op.hlc }, op.hlc);
 		} else if (op.op === "insert") {
-			this.setRow(op.table, op.rowId, payload ?? {}, { _row: op.hlc }, op.hlc);
+			// Merge over a row that already exists rather than replacing it.
+			// An insert whose row is already here is an insert the server will
+			// resolve as a column-wise merge anyway — and replacing would drop
+			// every server-owned column the client never writes. That is not
+			// hypothetical: `applySnapshot` replays pending ops, so a snapshot
+			// landing while an insert is unacked would otherwise reduce the
+			// authoritative row to the payload the client sent, with no later
+			// delta to restore the rest (the server believes the client still
+			// holds the row it sent).
+			const existing = this.getRow(op.table, op.rowId);
+			if (existing?.data) {
+				// Same shape as the update branch, including the row's server
+				// clock: an optimistic write must not advance the watermark the
+				// server's next delta is compared against.
+				const merged = { ...existing.data, ...payload };
+				this.setRow(op.table, op.rowId, merged, existing.colClocks, existing.serverHlc);
+			} else {
+				this.setRow(op.table, op.rowId, payload ?? {}, { _row: op.hlc }, op.hlc);
+			}
 		} else {
 			const existing = this.getRow(op.table, op.rowId);
 			if (existing?.data) {

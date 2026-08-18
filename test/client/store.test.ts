@@ -190,13 +190,7 @@ describe("ClientStore - Snapshots and Deltas", () => {
 	test("applyDelta rejects out-of-order older update (per-column HLC)", () => {
 		const store = new ClientStore();
 		// Row already at hlc3
-		store.setRow(
-			"posts",
-			"r1",
-			{ title: "newest" },
-			{ _row: hlc3, title: hlc3 },
-			hlc3,
-		);
+		store.setRow("posts", "r1", { title: "newest" }, { _row: hlc3, title: hlc3 }, hlc3);
 		// Older delta arrives late
 		store.applyDelta("posts", "update", "r1", { title: "stale" }, hlc1, {
 			_row: hlc1,
@@ -280,6 +274,42 @@ describe("ClientStore - Revert and Optimistic", () => {
 		const row = store.getRow("posts", "r1");
 		expect(row!.data).toEqual({ title: "hello", id: "r1" });
 		expect(row!.data!.orgId).toBeUndefined();
+	});
+
+	test("applyOptimistic insert merges over a row the snapshot already delivered", () => {
+		const store = new ClientStore();
+		store.setTableMeta({ players: { serverSet: [], readonly: [] } });
+		// The authoritative row, as a snapshot would deliver it.
+		store.setRow(
+			"players",
+			"p1",
+			{ id: "p1", name: "neon-otter-72", board: [0, 0, 0], action: "join" },
+			{ _row: "server-1" },
+			"server-1",
+		);
+
+		// A join the client sent optimistically: it only writes its own inputs.
+		const op: ClientOp = {
+			id: "op-1",
+			table: "players",
+			op: "insert",
+			rowId: "p1",
+			payload: { action: "heartbeat", inputSeq: 4 },
+			hlc: "client-1",
+			clientId: "c1",
+		};
+		store.applyOptimistic(op);
+
+		const row = store.getRow("players", "p1")!;
+		expect(row.data).toEqual({
+			id: "p1",
+			name: "neon-otter-72",
+			board: [0, 0, 0],
+			action: "heartbeat",
+			inputSeq: 4,
+		});
+		// The server's watermark stands, so its next delta is not read as stale.
+		expect(row.serverHlc).toBe("server-1");
 	});
 
 	test("applyOptimistic insert materializes the primary key from rowId", () => {

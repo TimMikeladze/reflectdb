@@ -126,6 +126,24 @@ export class ResultCache {
 		return this.diff(oldRows, newRows);
 	}
 
+	/**
+	 * Forget one row of one client's cached result.
+	 *
+	 * The cache mirrors what a client is believed to hold, and a writer is
+	 * excluded from the broadcast of its own write because it already applied
+	 * that write optimistically. For a delete that means the row is gone on the
+	 * client while the cache still holds it — and if the same rowId is later
+	 * re-created, the next diff reports it as an *update* against the dead row
+	 * and sends only the fields that happen to differ. The client, whose local
+	 * row is just its own optimistic payload, would silently never receive the
+	 * unchanged server-owned columns. Dropping the row here keeps the mirror
+	 * honest, so a re-created rowId diffs as a fresh insert carrying every
+	 * column.
+	 */
+	evictRow(clientId: string, queryName: string, rowId: string): void {
+		this.cache.get(clientId)?.get(queryName)?.delete(rowId);
+	}
+
 	clear(clientId: string, queryName: string): void {
 		this.cache.get(clientId)?.delete(queryName);
 	}

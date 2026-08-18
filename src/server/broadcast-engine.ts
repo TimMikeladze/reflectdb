@@ -134,6 +134,25 @@ export class BroadcastEngine<TAuth extends AuthContext = AuthContext> {
 	}
 
 	/**
+	 * Forget a row the writer itself removed, in every query that depends on
+	 * `tableName`.
+	 *
+	 * The writer is skipped by `broadcastChanges` because it applied its own op
+	 * optimistically, which leaves its cached result claiming a row the client
+	 * has already dropped. Re-creating that same rowId would then diff as an
+	 * update against the dead row and send only the columns that differ, so the
+	 * writer would never receive the server-owned columns that happen to match
+	 * the row it deleted.
+	 */
+	forgetWriterRow(tableName: string, clientId: string, rowId: string): void {
+		const affectedQueries = this.deps.tableDependencyIndex.get(tableName);
+		if (!affectedQueries) return;
+		for (const queryName of affectedQueries) {
+			this.deps.resultCache.evictRow(clientId, queryName, rowId);
+		}
+	}
+
+	/**
 	 * After a write to `tableName`, re-run every dependent query and send each
 	 * subscriber the rows that changed for them.
 	 *

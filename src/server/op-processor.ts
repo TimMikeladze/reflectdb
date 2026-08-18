@@ -53,6 +53,13 @@ export interface OpProcessorDeps<TAuth extends AuthContext> {
 	receiveClientHlc(hlc: string): void;
 	send(clientId: string, message: ServerMessage): Promise<void>;
 	broadcastChanges(tableName: string, excludeClientId: string): Promise<void>;
+	/**
+	 * Drop a row the writer deleted from the writer's own cached result set.
+	 * The writer is excluded from the broadcast of its own op, so without this
+	 * the cache keeps a row the client no longer holds — and a later re-insert
+	 * of the same rowId diffs as a partial update against that dead row.
+	 */
+	forgetWriterRow(tableName: string, clientId: string, rowId: string): void;
 }
 
 /**
@@ -435,6 +442,13 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 			}
 		}
 
+		// The writer applied this delete optimistically and is skipped by the
+		// fanout below, so its cached result has to forget the row here or a
+		// later re-insert of the same rowId diffs against a row that is gone.
+		if (op.op === "delete") {
+			this.deps.forgetWriterRow(op.table, session.clientId, op.rowId);
+		}
+
 		// Broadcast delta directly to subscribers (skip result cache diffing)
 		const senderSession = this.sessions.get(session.clientId);
 		const senderSub = senderSession?.subscriptions.get(op.table);
@@ -587,6 +601,13 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 					result.updatedColClocks,
 					op.hlc,
 				);
+			}
+
+			// The client already dropped this row optimistically; its cached
+			// result must drop it too, or re-creating the same rowId later
+			// diffs as an update against the row that no longer exists.
+			if (op.op === "delete") {
+				this.deps.forgetWriterRow(op.table, session.clientId, op.rowId);
 			}
 
 			// Collect affected tables for deferred broadcast (batch path) or broadcast immediately

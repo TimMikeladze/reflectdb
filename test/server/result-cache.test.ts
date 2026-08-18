@@ -108,6 +108,35 @@ describe("ResultCache", () => {
 		expect(cache.get("client-1", "users").size).toBe(0);
 	});
 
+	test("evictRow makes a re-created rowId diff as an insert, not an update", () => {
+		const cache = new ResultCache();
+		cache.set("client-1", "posts", [{ id: "r1", title: "Hello", body: "same" }]);
+
+		// The writer deleted r1 itself, so it never received that delta.
+		cache.evictRow("client-1", "posts", "r1");
+
+		const diff = cache.set("client-1", "posts", [{ id: "r1", title: "Fresh", body: "same" }]);
+		expect(diff.updated.length).toBe(0);
+		expect(diff.inserted.length).toBe(1);
+		// The whole row, including the column that matched the dead row.
+		expect(diff.inserted[0]!.data).toEqual({ id: "r1", title: "Fresh", body: "same" });
+	});
+
+	test("evictRow leaves other rows and other clients untouched", () => {
+		const cache = new ResultCache();
+		cache.set("client-1", "posts", [
+			{ id: "r1", title: "One" },
+			{ id: "r2", title: "Two" },
+		]);
+		cache.set("client-2", "posts", [{ id: "r1", title: "One" }]);
+
+		cache.evictRow("client-1", "posts", "r1");
+
+		expect(cache.get("client-1", "posts").has("r1")).toBe(false);
+		expect(cache.get("client-1", "posts").has("r2")).toBe(true);
+		expect(cache.get("client-2", "posts").has("r1")).toBe(true);
+	});
+
 	test("separate clients have independent caches", () => {
 		const cache = new ResultCache();
 		cache.set("client-1", "posts", [{ id: "r1", title: "A" }]);
