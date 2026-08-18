@@ -188,7 +188,8 @@ export function renderApp(root: HTMLElement): void {
 	root.innerHTML = `
     <header>
       <div class="brand">reflectdb</div>
-      <nav>
+      <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu">menu</button>
+      <nav id="site-nav">
         <a href="#how">how it works</a>
         <a href="#demos">demo</a>
         <a href="#quickstart">quickstart</a>
@@ -196,7 +197,10 @@ export function renderApp(root: HTMLElement): void {
         <a href="#features">features</a>
         <a href="#transports">transports</a>
       </nav>
-      <a class="gh" href="${REPO}">github</a>
+      <a class="gh" href="${REPO}" aria-label="reflectdb on GitHub">
+        <svg class="gh-icon" viewBox="0 0 16 16" width="17" height="17" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38l-.01-1.49c-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48l-.01 2.19c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"/></svg>
+        <span class="gh-label">github</span>
+      </a>
     </header>
 
     <section id="hero">
@@ -536,6 +540,10 @@ export function renderApp(root: HTMLElement): void {
 	const rotator = root.querySelector<HTMLElement>("#rotator");
 	if (rotator) startRotator(rotator, ROTATING, root.querySelector<HTMLElement>(".period"));
 
+	const header = root.querySelector<HTMLElement>("header");
+	const menuBtn = root.querySelector<HTMLButtonElement>(".menu-btn");
+	if (header && menuBtn) wireMenu(header, menuBtn);
+
 	root.querySelectorAll<HTMLButtonElement>(".copy-btn").forEach((btn) => {
 		btn.addEventListener("click", async () => {
 			const text = btn.dataset.copy ?? "";
@@ -552,6 +560,43 @@ export function renderApp(root: HTMLElement): void {
 				btn.textContent = "press ⌘C";
 			}
 		});
+	});
+}
+
+/**
+ * The narrow-screen menu: the same nav links, collapsed behind one button.
+ *
+ * The links stay in the DOM either way — the media query decides whether they
+ * sit in the bar or in a dropdown — so there is one nav to keep in sync and the
+ * markup reads the same to a crawler at any width. `open` lives on the header so
+ * the button and the panel can be styled from a single class.
+ */
+function wireMenu(header: HTMLElement, button: HTMLButtonElement): void {
+	const setOpen = (open: boolean): void => {
+		header.classList.toggle("open", open);
+		button.setAttribute("aria-expanded", String(open));
+		button.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+	};
+
+	button.addEventListener("click", (event) => {
+		event.stopPropagation();
+		setOpen(!header.classList.contains("open"));
+	});
+
+	// Following a link leaves the panel covering the section it jumped to, so
+	// close on any nav click. Clicks elsewhere and Escape close it too.
+	header.querySelector("nav")?.addEventListener("click", () => setOpen(false));
+	document.addEventListener("click", (event) => {
+		if (!header.contains(event.target as Node)) setOpen(false);
+	});
+	document.addEventListener("keydown", (event) => {
+		if (event.key === "Escape") setOpen(false);
+	});
+
+	// Widening past the breakpoint puts the links back in the bar; the open
+	// state would otherwise linger and re-appear on the next narrow resize.
+	window.matchMedia("(min-width: 761px)").addEventListener("change", (event) => {
+		if (event.matches) setOpen(false);
 	});
 }
 

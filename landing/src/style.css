@@ -59,7 +59,9 @@ header {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 16px;
+	/* One value for every gap in the bar: between the links, and between the
+	   last link and the repo link, which used to carry its own extra margin. */
+	gap: 18px;
 	height: 44px;
 	margin: 0 -24px 32px;
 	padding: 0 24px;
@@ -78,34 +80,115 @@ header {
 nav {
 	display: flex;
 	align-items: center;
-	/* Right-aligned next to the repo link when there is room; the auto margin
-	   collapses once the links overflow and the scroller takes the space. */
+	/* Right-aligned next to the repo link, which sits outside the nav so it can
+	   survive on narrow screens as an icon. */
 	margin-left: auto;
 	gap: 18px;
 	font-size: 12.5px;
 	color: var(--muted);
-	/* One line always — on narrow screens the links scroll sideways instead of
-	   wrapping into extra rows and doubling the header height. */
-	overflow-x: auto;
-	scrollbar-width: none;
-	-webkit-overflow-scrolling: touch;
-	mask-image: linear-gradient(to right, transparent 0, #000 12px);
-	-webkit-mask-image: linear-gradient(to right, transparent 0, #000 12px);
-	padding-left: 12px;
-}
-nav::-webkit-scrollbar {
-	display: none;
 }
 nav a {
 	white-space: nowrap;
 }
 
-/* Pinned outside the scroller so the repo link survives on narrow screens. */
+/* Shown only under the narrow breakpoint, where the links move into a panel. */
+.menu-btn {
+	display: none;
+	align-items: center;
+	gap: 8px;
+	margin-left: auto;
+	padding: 5px 10px;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	background: var(--bg-2);
+	color: var(--muted);
+	font-size: 12.5px;
+	cursor: pointer;
+}
+.menu-btn::after {
+	content: "";
+	width: 5px;
+	height: 5px;
+	border: 1px solid currentColor;
+	border-width: 0 1px 1px 0;
+	transform: translateY(-1px) rotate(45deg);
+	transition: transform 0.15s ease;
+}
+header.open .menu-btn {
+	color: var(--fg);
+	border-color: color-mix(in srgb, var(--line) 55%, var(--fg));
+}
+header.open .menu-btn::after {
+	transform: translateY(1px) rotate(-135deg);
+}
+
+/* Outside the nav, so the repo link never disappears into the menu. */
 .gh {
 	flex: none;
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
 	font-size: 12.5px;
 	white-space: nowrap;
-	margin-left: 18px;
+}
+.gh-icon {
+	display: none;
+}
+
+/* Below this width the six links no longer fit beside the wordmark, so they
+   collapse into a dropdown and the repo link drops to its mark alone. */
+@media (max-width: 760px) {
+	header {
+		gap: 12px;
+	}
+
+	.menu-btn {
+		display: inline-flex;
+	}
+
+	nav {
+		display: none;
+		position: absolute;
+		top: 100%;
+		left: 0;
+		right: 0;
+		margin: 0;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 2px;
+		padding: 6px;
+		font-size: 13.5px;
+		background: var(--bg);
+		border-bottom: 1px solid var(--line);
+		box-shadow: 0 12px 24px rgba(0, 0, 0, 0.45);
+	}
+	header.open nav {
+		display: flex;
+	}
+	nav a {
+		/* 6px panel padding + 10px here lines the links up with the wordmark. */
+		padding: 11px 10px;
+		border-radius: 6px;
+		border-bottom: 0;
+	}
+	nav a:hover,
+	nav a:active {
+		background: var(--bg-2);
+	}
+
+	.gh {
+		padding: 4px;
+		color: var(--muted);
+	}
+	.gh:hover {
+		color: var(--accent-2);
+	}
+	.gh-label {
+		display: none;
+	}
+	.gh-icon {
+		display: block;
+	}
 }
 
 section {
@@ -921,26 +1004,6 @@ footer a:hover {
 	}
 	.gh {
 		font-size: 12px;
-		margin-left: 12px;
-	}
-	nav {
-		gap: 14px;
-		font-size: 12px;
-		/* Fade both edges so a partly-scrolled link list reads as scrollable. */
-		mask-image: linear-gradient(
-			to right,
-			transparent 0,
-			#000 10px,
-			#000 calc(100% - 14px),
-			transparent 100%
-		);
-		-webkit-mask-image: linear-gradient(
-			to right,
-			transparent 0,
-			#000 10px,
-			#000 calc(100% - 14px),
-			transparent 100%
-		);
 	}
 	h1 {
 		font-size: 26px;
