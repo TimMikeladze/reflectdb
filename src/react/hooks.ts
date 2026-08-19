@@ -197,6 +197,9 @@ export function usePendingCount(): number {
  *
  * ```tsx
  * function CursorTracker({ userId }: { userId: string }) {
+ * `events` is keyed by the peer's `clientId`, so two tabs from one account
+ * appear as two peers.
+ *
  *   const { events, broadcast } = useEphemeral({
  *     key: "cursor",
  *     userId,
@@ -212,8 +215,8 @@ export function usePendingCount(): number {
  *
  *   return (
  *     <div>
- *       {Object.entries(events).map(([uid, data]) => (
- *         <div key={uid}>User {uid}: {JSON.stringify(data)}</div>
+ *       {Object.entries(events).map(([peerId, data]) => (
+ *         <div key={peerId}>Peer {peerId}: {JSON.stringify(data)}</div>
  *       ))}
  *     </div>
  *   );
@@ -234,11 +237,11 @@ export function useEphemeral<T extends object>(config: {
 
 	useEffect(() => {
 		const unsub = client.subscribeEphemeral(config.key, (event: EphemeralEvent) => {
-			setEvents((prev) => ({ ...prev, [event.userId]: event.data as T }));
+			setEvents((prev) => ({ ...prev, [event.clientId]: event.data as T }));
 
 			// Schedule stale entry cleanup if TTL is set
 			if (config.ttlMs) {
-				const existing = timersRef.current.get(event.userId);
+				const existing = timersRef.current.get(event.clientId);
 				if (existing) {
 					clearTimeout(existing);
 				}
@@ -246,13 +249,13 @@ export function useEphemeral<T extends object>(config: {
 				const timer = setTimeout(() => {
 					setEvents((prev) => {
 						const next = { ...prev };
-						delete next[event.userId];
+						delete next[event.clientId];
 						return next;
 					});
-					timersRef.current.delete(event.userId);
+					timersRef.current.delete(event.clientId);
 				}, config.ttlMs);
 
-				timersRef.current.set(event.userId, timer);
+				timersRef.current.set(event.clientId, timer);
 			}
 		});
 

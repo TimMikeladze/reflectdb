@@ -115,6 +115,15 @@ export function createServer<TDb = unknown, TAuth extends AuthContext = AuthCont
 		handler.setStorage(config.storage);
 	}
 
+	if (config.ephemeral?.maxEntries !== undefined) {
+		handler.setMaxEphemeralEntries(config.ephemeral.maxEntries);
+	}
+	// After maxEntries: an explicit adapter owns its own capacity policy and
+	// must not be replaced by the default store.
+	if (config.ephemeral?.adapter) {
+		handler.setEphemeralAdapter(config.ephemeral.adapter);
+	}
+
 	let compactionConfig: CompactionConfig | null = null;
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
 

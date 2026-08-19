@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, test } from "bun:test";
-import { EphemeralManager } from "../../src/server/ephemeral-manager.ts";
+import { EphemeralManager } from "../../src/server/ephemeral/memory.ts";
 
 describe("EphemeralManager size cap", () => {
 	test("rejects new entries at capacity", () => {
@@ -11,7 +11,7 @@ describe("EphemeralManager size cap", () => {
 
 		// At capacity — new entry rejected
 		expect(manager.set("room1", "cursor", "c4", "u4", { x: 4 })).toBe(false);
-		expect(manager.size).toBe(3);
+		expect(manager.size()).toBe(3);
 	});
 
 	test("allows updates when at capacity", () => {
@@ -22,10 +22,10 @@ describe("EphemeralManager size cap", () => {
 
 		// Update existing entry — should succeed
 		expect(manager.set("room1", "cursor", "c1", "u1", { x: 10 })).toBe(true);
-		expect(manager.size).toBe(2);
+		expect(manager.size()).toBe(2);
 
 		const states = manager.get("room1", "cursor");
-		expect(states.u1.data.x).toBe(10);
+		expect(states.c1!.data.x).toBe(10);
 	});
 
 	test("accepts new entries after removal frees capacity", () => {
@@ -38,12 +38,12 @@ describe("EphemeralManager size cap", () => {
 		expect(manager.set("room1", "cursor", "c3", "u3", { x: 3 })).toBe(false);
 
 		// Remove one
-		manager.remove("room1", "cursor", "u1");
-		expect(manager.size).toBe(1);
+		manager.remove("room1", "cursor", "c1");
+		expect(manager.size()).toBe(1);
 
 		// Now there's space
 		expect(manager.set("room1", "cursor", "c3", "u3", { x: 3 })).toBe(true);
-		expect(manager.size).toBe(2);
+		expect(manager.size()).toBe(2);
 	});
 
 	test("removeClient decrements count correctly", () => {
@@ -53,10 +53,10 @@ describe("EphemeralManager size cap", () => {
 		manager.set("room1", "typing", "c1", "u1", { text: "hi" });
 		manager.set("room1", "cursor", "c2", "u2", { x: 2 });
 
-		expect(manager.size).toBe(3);
+		expect(manager.size()).toBe(3);
 
 		manager.removeClient("c1");
-		expect(manager.size).toBe(1);
+		expect(manager.size()).toBe(1);
 	});
 
 	test("destroy resets count", () => {
@@ -65,7 +65,7 @@ describe("EphemeralManager size cap", () => {
 		manager.set("room1", "cursor", "c2", "u2", { x: 2 });
 
 		manager.destroy();
-		expect(manager.size).toBe(0);
+		expect(manager.size()).toBe(0);
 	});
 
 	test("cleanupExpired decrements count", () => {
@@ -73,13 +73,13 @@ describe("EphemeralManager size cap", () => {
 
 		// Entry with very short TTL
 		manager.set("room1", "cursor", "c1", "u1", { x: 1 }, 1);
-		expect(manager.size).toBe(1);
+		expect(manager.size()).toBe(1);
 
 		// Wait for TTL to expire
 		const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 		return wait(10).then(() => {
 			manager.cleanupExpired();
-			expect(manager.size).toBe(0);
+			expect(manager.size()).toBe(0);
 		});
 	});
 });
@@ -99,8 +99,27 @@ describe("EphemeralManager", () => {
 		manager.set("room1", "cursor", "client1", "user1", { x: 10, y: 20 });
 
 		const state = manager.get("room1", "cursor");
-		expect(Object.keys(state)).toEqual(["user1"]);
-		expect(state.user1!.data).toEqual({ x: 10, y: 20 });
+		expect(Object.keys(state)).toEqual(["client1"]);
+		expect(state.client1!.data).toEqual({ x: 10, y: 20 });
+	});
+
+	it("treats two tabs from one account as two peers", () => {
+		// Peer identity is the connection, not the login — otherwise a second
+		// tab silently overwrites the first one's cursor.
+		manager.set("room1", "cursor", "tab-a", "user1", { x: 10 });
+		manager.set("room1", "cursor", "tab-b", "user1", { x: 99 });
+
+		const state = manager.get("room1", "cursor");
+		expect(Object.keys(state).sort()).toEqual(["tab-a", "tab-b"]);
+		expect(state["tab-a"]!.data).toEqual({ x: 10 });
+		expect(state["tab-b"]!.data).toEqual({ x: 99 });
+		// Both carry the same display identity.
+		expect(state["tab-a"]!.userId).toBe("user1");
+		expect(manager.size()).toBe(2);
+
+		// One tab closing must not take the other's cursor with it.
+		manager.removeClient("tab-a");
+		expect(Object.keys(manager.get("room1", "cursor"))).toEqual(["tab-b"]);
 	});
 
 	it("returns empty object for non-existent keys", () => {
@@ -108,17 +127,17 @@ describe("EphemeralManager", () => {
 		expect(state).toEqual({});
 	});
 
-	it("removes specific user state", () => {
+	it("removes one peer's state", () => {
 		manager.set("room1", "cursor", "client1", "user1", { x: 10, y: 20 });
 		manager.set("room1", "cursor", "client2", "user2", { x: 30, y: 40 });
 
-		manager.remove("room1", "cursor", "user1");
+		manager.remove("room1", "cursor", "client1");
 
 		const state = manager.get("room1", "cursor");
-		expect(Object.keys(state)).toEqual(["user2"]);
+		expect(Object.keys(state)).toEqual(["client2"]);
 	});
 
-	it("removes all state for a client", () => {
+	it("removes every entry a client published", () => {
 		manager.set("room1", "cursor", "client1", "user1", { x: 10, y: 20 });
 		manager.set("room1", "typing", "client1", "user1", { active: true });
 		manager.set("room1", "cursor", "client2", "user2", { x: 30, y: 40 });
@@ -128,7 +147,7 @@ describe("EphemeralManager", () => {
 		const cursor = manager.get("room1", "cursor");
 		const typing = manager.get("room1", "typing");
 
-		expect(Object.keys(cursor)).toEqual(["user2"]);
+		expect(Object.keys(cursor)).toEqual(["client2"]);
 		expect(typing).toEqual({});
 	});
 
@@ -147,7 +166,7 @@ describe("EphemeralManager", () => {
 		Date.now = originalNow;
 
 		const state = manager.get("room1", "cursor");
-		expect(Object.keys(state)).toEqual(["user2"]);
+		expect(Object.keys(state)).toEqual(["client2"]);
 	});
 
 	it("supports multiple rooms", () => {
@@ -157,8 +176,8 @@ describe("EphemeralManager", () => {
 		const room1 = manager.get("room1", "cursor");
 		const room2 = manager.get("room2", "cursor");
 
-		expect(Object.keys(room1)).toEqual(["user1"]);
-		expect(Object.keys(room2)).toEqual(["user2"]);
+		expect(Object.keys(room1)).toEqual(["client1"]);
+		expect(Object.keys(room2)).toEqual(["client2"]);
 	});
 
 	it("cleanupExpired drops stale clientIndex entries (no identity leak)", () => {
@@ -178,7 +197,7 @@ describe("EphemeralManager", () => {
 		manager.set("room1", "cursor", "client1", "user1", { x: 99 });
 		manager.removeClient("client1");
 		expect(manager.get("room1", "cursor")).toEqual({});
-		expect(manager.size).toBe(0);
+		expect(manager.size()).toBe(0);
 	});
 
 	it("removeClient after many sets does not leave dangling state", () => {
@@ -186,9 +205,9 @@ describe("EphemeralManager", () => {
 		for (let i = 0; i < 50; i++) {
 			manager.set("room1", `key${i}`, "client1", "user1", { v: i });
 		}
-		expect(manager.size).toBe(50);
+		expect(manager.size()).toBe(50);
 		manager.removeClient("client1");
-		expect(manager.size).toBe(0);
+		expect(manager.size()).toBe(0);
 		for (let i = 0; i < 50; i++) {
 			expect(manager.get("room1", `key${i}`)).toEqual({});
 		}

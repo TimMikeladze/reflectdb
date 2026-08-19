@@ -304,23 +304,23 @@ export function createSync(config: VanillaSyncConfig): VanillaSync {
 		}
 
 		const unsub = client.subscribeEphemeral(ephConfig.key, (event: EphemeralEvent) => {
-			events = { ...events, [event.userId]: event.data as T };
+			events = { ...events, [event.clientId]: event.data as T };
 
 			if (ephConfig.ttlMs) {
-				const existing = timers.get(event.userId);
+				const existing = timers.get(event.clientId);
 				if (existing) {
 					clearTimeout(existing);
 				}
 
 				const timer = setTimeout(() => {
 					const next = { ...events };
-					delete next[event.userId];
+					delete next[event.clientId];
 					events = next;
-					timers.delete(event.userId);
+					timers.delete(event.clientId);
 					notifyChange();
 				}, ephConfig.ttlMs);
 
-				timers.set(event.userId, timer);
+				timers.set(event.clientId, timer);
 			}
 
 			notifyChange();

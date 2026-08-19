@@ -864,6 +864,126 @@ h3.sub {
 	font-weight: 500;
 }
 
+/* ── Live presence demo ──────────────────────────────────────────────────
+   Unlike the other two previews this one is not a link — it is the running
+   service. Everything below has a resting state that reads correctly before
+   the socket connects, so the card never looks broken while it is loading or
+   when no key is configured. */
+
+.demo-live {
+	cursor: crosshair;
+}
+
+.presence-surface {
+	position: relative;
+	flex: 1;
+	min-height: 300px;
+	overflow: hidden;
+	background-image:
+		linear-gradient(var(--line) 1px, transparent 1px),
+		linear-gradient(90deg, var(--line) 1px, transparent 1px);
+	background-size: 28px 28px;
+	background-position: center;
+}
+
+.presence-invite {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	margin: 0;
+	color: var(--muted);
+	font-size: 11.5px;
+	letter-spacing: 0.04em;
+	pointer-events: none;
+	transition: opacity 0.25s ease;
+}
+
+/* The prompt is the card's only instruction while the room is empty, so it
+   stays put through your own pointer moves. Peers on screen make the point
+   better than words, and it would sit under their cursors. */
+.demo-live.has-peers .presence-invite {
+	opacity: 0;
+}
+
+.presence-peers,
+.presence-ghosts {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+/* The stand-in cursors are the no-JS, no-key, service-down state. They step
+   aside the moment a real connection can draw real ones. */
+.presence-ghosts {
+	opacity: 0.4;
+	transition: opacity 0.3s ease;
+}
+
+.demo-live.is-connected .presence-ghosts {
+	opacity: 0;
+}
+
+.presence-cursor {
+	position: absolute;
+	display: flex;
+	align-items: flex-start;
+	gap: 3px;
+	color: var(--peer-color, var(--accent));
+	/* Peers publish fractions of the surface, so a move is a position change
+	   rather than an animation — a short transition turns the 20/s sample rate
+	   into something that reads as motion instead of teleporting. */
+	transition:
+		left 0.08s linear,
+		top 0.08s linear;
+	will-change: left, top;
+}
+
+.presence-cursor svg {
+	width: 13px;
+	height: 15px;
+	flex-shrink: 0;
+	fill: currentColor;
+	/* Peer colours are picked light so the label ink can be near-black, which
+	   leaves the arrow with almost no contrast on the light theme's white
+	   board. The outline is what makes it read on both, and it is the peer's
+	   own colour that stays the identifier. */
+	stroke: rgba(0, 0, 0, 0.55);
+	stroke-width: 1;
+	paint-order: stroke fill;
+	filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25));
+}
+
+.presence-cursor span {
+	margin-top: 9px;
+	padding: 2px 6px;
+	border-radius: 3px;
+	/* Not `currentColor`: the `color` below would resolve it, painting the pill
+	   the same shade as its own text. Peer colours are all light, so the ink is
+	   a fixed near-black that reads on every one of them in either theme. */
+	background: var(--peer-color, var(--accent));
+	color: #0a0a0b;
+	font-family: var(--mono);
+	font-size: 9.5px;
+	line-height: 1.5;
+	white-space: nowrap;
+}
+
+.demo-live .demo-preview-footer strong {
+	color: var(--muted);
+	font-variant-numeric: tabular-nums;
+}
+
+.demo-live.has-peers .demo-preview-footer strong {
+	color: var(--accent);
+}
+
+.demo-live.is-offline .demo-synced,
+.demo-live:not(.is-connected) .demo-synced {
+	color: var(--muted);
+}
+
 @media (max-width: 860px) {
 	.demo-feature {
 		grid-template-columns: 1fr;

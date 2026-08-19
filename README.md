@@ -126,7 +126,7 @@ Optional bits (use what you want):
 - **Op log compaction** — configurable retention for old accepted ops
 - **High availability** — shared Postgres + optional cross-instance polling
 - **Framework bindings** — React hooks, Svelte stores, and a vanilla-JS helper; the core client works anywhere
-- **Ephemeral channels** — presence, cursors, typing indicators that never touch the op log
+- **Ephemeral channels** — presence, cursors, typing indicators that never touch the op log, with a room snapshot on join and a pluggable adapter (Redis included) so presence spans a fleet
 - **Typed presence** — `presence()` in the schema, `usePresence()` in the component, key derived for you
 - **Read-only views** — `view()` entries that recompute on their dependencies and reject writes at both levels
 - **Windowed sync** — paginate large tables with `loadMore` + `useTotalCount`
@@ -515,6 +515,16 @@ client that has called no `sync()` yet has no audience, so its ephemeral message
 nobody. The `userId` on the wire is always the authenticated one — the client-supplied
 value is ignored — and a client-supplied `ttlMs` is clamped server-side.
 
+Subscribing to a room also delivers a **snapshot** of that room's live ephemeral
+state, so a client that joins mid-session sees the peers already there instead of
+waiting for each one to move again. Snapshots arrive as ordinary `ephemeral` events
+and exclude the joiner's own entries.
+
+By default this state lives in the server process, which is correct on one node
+and invisible across a fleet — two clients on different instances never see each
+other. Point `ephemeral.adapter` at shared infrastructure to fix both halves; see
+[Ephemeral (presence)](#ephemeral-presence).
+
 The whiteboard renders peer cursors this way — see [`examples/whiteboard/app.tsx`](./examples/whiteboard/app.tsx).
 
 ### Typed presence
@@ -565,9 +575,11 @@ Details worth knowing:
   are room-scoped by the sender's active subscriptions.
 - **`peers` excludes you.** Ephemeral events are only delivered to *other* clients, so
   render your own cursor from local state.
-- **`userId` is per browser session.** The client has no notion of a logged-in identity,
-  so presence keys entries by `clientId`. Two tabs from one account are two peers. Put
-  the display identity in `state` (as `name` above) if you need it.
+- **Peers are keyed by connection, not by account.** Presence entries are keyed by
+  `clientId` end to end — on the wire, in the server's store, and in `peers` — so two
+  tabs from one login are two peers with two cursors. Put the display identity in
+  `state` (as `name` above) if you need it; the authenticated `userId` rides along on
+  every event for authorization and display.
 - **Params are required when declared**, exactly like `useSync` — `usePresence("cursor")`
   fails to compile if the entry declares params.
 - **React only.** `createSyncSvelte` / `createSyncVanilla` have no presence helper; use
@@ -1483,6 +1495,64 @@ At boot the client restores its persisted subscriptions first and hydrates only 
 |---------|--------|----------|
 | `createMemoryStorage()` | `reflectdb/client` | Testing, SSR, short sessions |
 | `createIndexedDBStorage({ dbName, version?, migrate? })` | `reflectdb/client/storage/indexeddb` | Production browser apps |
+
+#### Ephemeral (presence)
+
+Presence, cursors and typing indicators are stored separately from the op log —
+they never durably persist, and they have their own adapter.
+
+| Adapter | Import | Best for |
+|---------|--------|----------|
+| _(none)_ | omit `ephemeral` | In-process store; single node |
+| `createRedisEphemeral({ client, subscriber?, prefix? })` | `reflectdb/server/ephemeral/redis` | Multiple instances behind a load balancer |
+
+```ts
+import { createRedisEphemeral } from "reflectdb/server/ephemeral/redis";
+import Redis from "ioredis";
+
+const commands = new Redis(process.env.REDIS_URL!);
+// Subscribe mode blocks ordinary commands, so the bus needs its own connection.
+const bus = new Redis(process.env.REDIS_URL!);
+
+const server = createSyncServer({
+  queries,
+  db,
+  transport,
+  ephemeral: {
+    adapter: createRedisEphemeral({
+      client: commands,
+      subscriber: {
+        subscribe: (channel, onMessage) => {
+          bus.on("message", (c, m) => { if (c === channel) onMessage(m); });
+          return bus.subscribe(channel);
+        },
+      },
+    }),
+  },
+});
+```
+
+`client` needs one method — `call(command, ...args)`, which `ioredis` has natively.
+For node-redis or Bun, wrap it:
+
+```ts
+// node-redis
+{ call: (cmd, ...args) => client.sendCommand([cmd, ...args.map(String)]) }
+// Bun
+{ call: (cmd, ...args) => client.send(cmd, args.map(String)) }
+```
+
+Options: `prefix` (default `reflectdb:eph`), `maxEntries` (default `100_000`,
+fleet-wide), `hashTtlSeconds` (default 24h — a safety net so a crashed instance
+can't strand entries forever). Omit `subscriber` to share state without a live
+bus: peers then appear on join and after a sweep, but not as they move.
+
+`ephemeral.maxEntries` on its own tunes the in-process store's ceiling
+(default `10_000`) without swapping the adapter.
+
+Implement `EphemeralAdapter` (from `reflectdb/server/ephemeral`) to back
+presence with something else. `publish`/`subscribe` are optional — an adapter
+without them is a shared store with no live bus.
 
 ### Transport configuration
 

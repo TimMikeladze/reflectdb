@@ -5,6 +5,7 @@ import type {
 	OpType,
 	RateLimitConfig,
 } from "../core/types.ts";
+import type { EphemeralAdapter } from "./ephemeral/types.ts";
 import type { TxAtomicAdapter } from "./tx-atomic.ts";
 
 export type SyncEvent =
@@ -55,6 +56,18 @@ export interface ServerConfig<TDb = unknown> {
 	 * this is absent. See `TxAtomicAdapter`.
 	 */
 	txAtomic?: TxAtomicAdapter;
+	/**
+	 * Ephemeral (presence, cursors, typing) storage and fan-out.
+	 *
+	 * The default is in-process: correct on one node, invisible across a fleet,
+	 * since each instance holds its own map and its own sockets. Supply an
+	 * adapter backed by shared infrastructure to make presence span instances.
+	 */
+	ephemeral?: {
+		adapter?: EphemeralAdapter;
+		/** Entry ceiling for the default in-process store. Default: 10_000. */
+		maxEntries?: number;
+	};
 }
 
 export interface QueryContext<TAuth extends AuthContext = AuthContext> {

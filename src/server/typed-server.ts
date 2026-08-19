@@ -51,6 +51,16 @@ export interface TypedServerConfig<TQueries extends SyncQueryMap, TDb = unknown>
 	maxBroadcastConcurrency?: number;
 	/** Adapter that wraps `server.tx({ atomic: true })` writes in a transaction. */
 	txAtomic?: import("./tx-atomic.ts").TxAtomicAdapter;
+	/**
+	 * Ephemeral (presence, cursors, typing) storage and fan-out. Defaults to an
+	 * in-process store, which is invisible across a fleet — supply an adapter
+	 * backed by shared infrastructure to make presence span instances.
+	 */
+	ephemeral?: {
+		adapter?: import("./ephemeral/types.ts").EphemeralAdapter;
+		/** Entry ceiling for the default in-process store. Default: 10_000. */
+		maxEntries?: number;
+	};
 }
 
 // ── Params helper (typed params when declared, loose when not) ──────────
@@ -317,6 +327,7 @@ export function createSyncServer<
 		queryTimeoutMs: config.queryTimeoutMs,
 		maxBroadcastConcurrency: config.maxBroadcastConcurrency,
 		txAtomic: config.txAtomic,
+		ephemeral: config.ephemeral,
 	});
 
 	const implementations = new Map<string, StoredImpl>();

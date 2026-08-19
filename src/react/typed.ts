@@ -149,9 +149,9 @@ export function createSyncReact<TQueries extends SyncQueryMap>(
 		const def = (queries?.[name] ?? {}) as { ttlMs?: number };
 		const ttlMs = def.ttlMs;
 		const client = useSyncClient();
-		// SyncClient doesn't carry a userId today, so we derive a per-session id
-		// from the clientId. This matches presence semantics — peers are uniquely
-		// keyed per browser/tab session, not per logged-in identity.
+		// The server stamps the authenticated userId on every event and keys
+		// entries by clientId, so this value never reaches a peer — it is sent
+		// only to keep `useEphemeral`'s config shape.
 		const userId = (client as unknown as { config?: { clientId?: string } }).config?.clientId
 			?? "anonymous";
 		const key = useMemo(() => derivePresenceKey(name, params), [name, params]);
@@ -162,8 +162,8 @@ export function createSyncReact<TQueries extends SyncQueryMap>(
 		});
 		const peers = useMemo(
 			() =>
-				Object.entries(events).map(([uid, state]) => ({
-					userId: uid,
+				Object.entries(events).map(([peerId, state]) => ({
+					userId: peerId,
 					state: state as InferState<TQueries, K> & Record<string, unknown>,
 				})),
 			[events],

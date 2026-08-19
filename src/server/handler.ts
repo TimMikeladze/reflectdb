@@ -4,6 +4,7 @@ import type {
 	ErrorReason,
 	OpType,
 	ServerTransport,
+	EphemeralEvent,
 	EphemeralMessage,
 	LoadMoreMessage,
 } from "../core/types.ts";
@@ -32,7 +33,13 @@ import type {
 import { ResultCache } from "./result-cache.ts";
 import { BroadcastEngine } from "./broadcast-engine.ts";
 import { OpProcessor } from "./op-processor.ts";
-import { EphemeralManager } from "./ephemeral-manager.ts";
+import { EphemeralManager } from "./ephemeral/memory.ts";
+import type {
+	EphemeralAdapter,
+	EphemeralBroadcast,
+	EphemeralState,
+	EphemeralTarget,
+} from "./ephemeral/types.ts";
 import { EagerBuffer } from "./eager-buffer.ts";
 import { validateClientMessage } from "./message-validator.ts";
 import { CompactionManager } from "./compaction-manager.ts";
@@ -269,7 +276,9 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 	private resultCache = new ResultCache();
 	private broadcast: BroadcastEngine<TAuth>;
 	private ops: OpProcessor<TAuth>;
-	private ephemeralManager = new EphemeralManager();
+	private ephemeralManager: EphemeralAdapter = new EphemeralManager();
+	/** Bus subscription is wired once, on the first adapter that offers one. */
+	private ephemeralBusReady = false;
 	private ephemeralCleanupTimer: ReturnType<typeof setInterval> | null = null;
 	private eagerBuffer = new EagerBuffer();
 	private replay: ReplayDetector;
@@ -385,7 +394,9 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 			this.messageQueues.delete(clientId);
 			this.messageQueueDepths.delete(clientId);
 			this.resultCache.clearClient(clientId);
-			this.ephemeralManager.removeClient(clientId);
+			// A shared adapter round-trips here; disconnect is not an async
+			// context, so failures are surfaced rather than left unhandled.
+			void this.forgetEphemeralClient(clientId);
 			this.ephemeralBuckets.delete(clientId);
 			this.emit({ type: "client_disconnected", clientId });
 		});
@@ -453,7 +464,9 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 
 		// Start ephemeral cleanup timer
 		this.ephemeralCleanupTimer = setInterval(() => {
-			this.ephemeralManager.cleanupExpired();
+			void Promise.resolve(this.ephemeralManager.cleanupExpired()).catch((err) => {
+				console.error("[reflectdb] ephemeral cleanup failed:", err);
+			});
 		}, 5_000);
 
 		// Surface eager-buffer flush failures so operators can wire a DLQ /
@@ -543,6 +556,34 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 		this.ephemeralManager = new EphemeralManager(max);
 	}
 
+	/**
+	 * Swap the ephemeral store. An adapter that implements `subscribe` also
+	 * makes this instance a bus participant, so presence spans the fleet.
+	 */
+	setEphemeralAdapter(adapter: EphemeralAdapter): void {
+		this.ephemeralManager = adapter;
+		if (!adapter.subscribe || this.ephemeralBusReady) return;
+		this.ephemeralBusReady = true;
+		void Promise.resolve(
+			adapter.subscribe((event) => {
+				void this.deliverRemoteEphemeral(event).catch((err) => {
+					console.error("[reflectdb] remote ephemeral delivery failed:", err);
+				});
+			}),
+		).catch((err) => {
+			console.error("[reflectdb] ephemeral bus subscribe failed:", err);
+		});
+	}
+
+	/** Drop everything a client published, whatever the adapter costs. */
+	private async forgetEphemeralClient(clientId: string): Promise<void> {
+		try {
+			await this.ephemeralManager.removeClient(clientId);
+		} catch (err) {
+			console.error("[reflectdb] ephemeral client cleanup failed:", err);
+		}
+	}
+
 	setMinSchemaVersion(version: number): void {
 		this.minSchemaVersion = version;
 	}
@@ -569,7 +610,7 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 			this.messageQueues.delete(oldest.clientId);
 			this.messageQueueDepths.delete(oldest.clientId);
 			this.resultCache.clearClient(oldest.clientId);
-			this.ephemeralManager.removeClient(oldest.clientId);
+			await this.forgetEphemeralClient(oldest.clientId);
 			this.ephemeralBuckets.delete(oldest.clientId);
 		}
 	}
@@ -1298,6 +1339,12 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 			roomKey,
 			message.window ?? null,
 		);
+
+		// The subscription is what gives a client an ephemeral audience, so this
+		// is the first moment its room's presence is deliverable.
+		if (roomKey) {
+			await this.sendPresenceSnapshot(clientId, roomKey);
+		}
 	}
 
 	private async handleLoadMore(clientId: string, message: LoadMoreMessage): Promise<void> {
@@ -1456,24 +1503,70 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 			ttlMs,
 		};
 
-		// Send to all clients in the same room(s), or same queries if no rooms
-		const sent = new Set<string>();
-		const recipients: string[] = [];
 		for (const roomKey of roomKeys) {
-			const accepted = this.ephemeralManager.set(roomKey, key, clientId, userId, data, ttlMs);
+			const accepted = await this.ephemeralManager.set(
+				roomKey,
+				key,
+				clientId,
+				userId,
+				data,
+				ttlMs,
+			);
 			if (!accepted) {
-				this.emit({ type: "ephemeral_full", currentSize: this.ephemeralManager.size });
+				this.emit({
+					type: "ephemeral_full",
+					currentSize: await this.ephemeralManager.size(),
+				});
 				return;
 			}
 		}
 
+		// Resolve fan-out targets once. Peer instances cannot re-derive them —
+		// they hold no session for this sender — so they travel on the bus.
+		const targets: EphemeralTarget[] = [];
 		for (const queryName of queryNames) {
 			// If sender has a room, scope to that room; otherwise broadcast to all subscribers
 			const senderSub = session.subscriptions.get(queryName);
-			const senderRoomKey = senderSub?.roomKey ?? null;
-			const subscribers = this.sessions.getSubscribersForQuery(queryName, senderRoomKey);
+			targets.push({ query: queryName, room: senderSub?.roomKey ?? null });
+		}
+
+		await this.fanOutEphemeral(event, targets, clientId);
+
+		if (this.ephemeralManager.publish) {
+			try {
+				await this.ephemeralManager.publish({
+					serverId: this.serverId,
+					key,
+					clientId,
+					userId,
+					data,
+					ttlMs,
+					targets,
+				});
+			} catch (err) {
+				// Local peers already have it; a bus failure must not fail the send.
+				console.error("[reflectdb] ephemeral publish failed:", err);
+			}
+		}
+	}
+
+	/**
+	 * Deliver one ephemeral event to this instance's sockets.
+	 *
+	 * `exclude` is the sender when the event originated here, and undefined
+	 * when it arrived over the bus — the sender's socket lives elsewhere.
+	 */
+	private async fanOutEphemeral(
+		event: EphemeralEvent,
+		targets: EphemeralTarget[],
+		exclude?: string,
+	): Promise<void> {
+		const sent = new Set<string>();
+		const recipients: string[] = [];
+		for (const target of targets) {
+			const subscribers = this.sessions.getSubscribersForQuery(target.query, target.room);
 			for (const sub of subscribers) {
-				if (sub.clientId !== clientId && !sent.has(sub.clientId)) {
+				if (sub.clientId !== exclude && !sent.has(sub.clientId)) {
 					sent.add(sub.clientId);
 					recipients.push(sub.clientId);
 				}
@@ -1484,6 +1577,56 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 		// backpressured socket delay presence for everyone behind it — on the
 		// highest-frequency message type in the protocol.
 		await Promise.all(recipients.map((recipient) => this.trySend(recipient, event)));
+	}
+
+	/** An event published by a peer instance. State is already in the shared store. */
+	private async deliverRemoteEphemeral(remote: EphemeralBroadcast): Promise<void> {
+		// Buses that echo to the publisher would otherwise double-send.
+		if (remote.serverId === this.serverId) return;
+		await this.fanOutEphemeral(
+			{
+				type: "ephemeral",
+				key: remote.key,
+				clientId: remote.clientId,
+				userId: remote.userId,
+				data: remote.data,
+				ttlMs: remote.ttlMs,
+			},
+			remote.targets,
+		);
+	}
+
+	/**
+	 * Replay a room's live presence to a client that just subscribed.
+	 *
+	 * Without this a joiner sees nobody until each peer happens to move again —
+	 * the stored state existed but was never served. Replayed as ordinary
+	 * `ephemeral` events, so clients need no new message type to benefit.
+	 */
+	private async sendPresenceSnapshot(clientId: string, roomKey: string): Promise<void> {
+		let channels: Record<string, Record<string, EphemeralState>>;
+		try {
+			channels = await this.ephemeralManager.getRoom(roomKey);
+		} catch (err) {
+			console.error("[reflectdb] presence snapshot failed:", err);
+			return;
+		}
+
+		for (const byClient of Object.values(channels)) {
+			for (const state of Object.values(byClient)) {
+				// Skip the joiner's own entries: peers exclude self everywhere
+				// else, and echoing them back would render a duplicate cursor.
+				if (state.clientId === clientId) continue;
+				await this.trySend(clientId, {
+					type: "ephemeral",
+					key: state.key,
+					clientId: state.clientId,
+					userId: state.userId,
+					data: state.data,
+					ttlMs: state.ttlMs,
+				});
+			}
+		}
 	}
 
 	// ── Compaction watermark (lazy-loaded from storage) ─────────────────
@@ -1701,7 +1844,7 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 		}
 		this.messageQueues.clear();
 		this.messageQueueDepths.clear();
-		this.ephemeralManager.destroy();
+		void Promise.resolve(this.ephemeralManager.destroy()).catch(() => {});
 		await this.eagerBuffer.close();
 	}
 }

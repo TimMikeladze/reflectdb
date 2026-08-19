@@ -1,10 +1,12 @@
 import * as D from "./diagrams.ts";
 import { escapeHtml, highlight } from "./highlight.ts";
+import { mountPresenceDemo } from "./presence-demo.ts";
 import * as S from "./snippets.ts";
 
 const REPO = "https://github.com/TimMikeladze/reflectdb";
 const TETRIS_DEMO = "https://reflectdb-tetris.fly.dev/";
 const WHITEBOARD_DEMO = "https://reflectdb-whiteboard.fly.dev/";
+const PRESENCE_SERVICE = `${REPO}/tree/main/services/presence`;
 
 /**
  * Cycled through by the hero typewriter. Every one of these is something
@@ -376,6 +378,51 @@ export function renderApp(root: HTMLElement): void {
           <div class="demo-preview-footer"><span>draw together · guess in chat</span><strong>open →</strong></div>
         </a>
       </article>
+
+      <article class="demo-feature">
+        <div class="demo-copy">
+          <div class="demo-status"><span></span>deployed on fly.io · running right now</div>
+          <h4>Presence, live on this page</h4>
+          <p>
+            The other two demos are somewhere else. This one is here: the panel is connected
+            to the public presence service, publishing your pointer and drawing everyone
+            else's. Open this page in a second tab and the two see each other.
+          </p>
+          <ul class="demo-facts">
+            <li>a snapshot on join — late arrivals see who is already there</li>
+            <li>a closed tab drops its cursor at once, not on a TTL</li>
+            <li>state and fan-out live in Redis, so rooms span the fleet</li>
+          </ul>
+          <div class="demo-actions">
+            <a class="btn primary" href="${PRESENCE_SERVICE}">read the service →</a>
+            <a class="btn" href="${PRESENCE_SERVICE}/client.ts">view the client</a>
+          </div>
+          <p class="demo-hint">
+            Your cursor is shared with everyone reading this page, and stored nowhere.
+          </p>
+        </div>
+
+        <div class="demo-preview demo-live" id="presence-demo">
+          <div class="demo-chrome">
+            <span class="demo-chrome-dot"></span>
+            <span>reflectdb-presence.fly.dev</span>
+            <span class="demo-synced" data-presence-state>connecting</span>
+          </div>
+          <div class="presence-surface" data-presence-surface>
+            <p class="presence-invite" data-presence-invite>move your cursor in here</p>
+            <div class="presence-peers" data-presence-peers></div>
+            <div class="presence-ghosts" aria-hidden="true">
+              <div class="presence-cursor" style="--peer-color: #6ea8ff; left: 30%; top: 38%">
+                <svg viewBox="0 0 14 16"><path d="M0 0l13 5-5 2-2 5z" /></svg><span>clever lynx</span>
+              </div>
+              <div class="presence-cursor" style="--peer-color: #ffb86b; left: 62%; top: 64%">
+                <svg viewBox="0 0 14 16"><path d="M0 0l13 5-5 2-2 5z" /></svg><span>bold otter</span>
+              </div>
+            </div>
+          </div>
+          <div class="demo-preview-footer"><span>real visitors · real cursors</span><strong data-presence-count>presence is loading</strong></div>
+        </div>
+      </article>
     `,
 		)}
 
@@ -623,6 +670,9 @@ export function renderApp(root: HTMLElement): void {
 
 	const themeBtn = root.querySelector<HTMLButtonElement>(".theme-btn");
 	if (themeBtn) wireTheme(themeBtn);
+
+	const presenceDemo = root.querySelector<HTMLElement>("#presence-demo");
+	if (presenceDemo) mountPresenceDemo(presenceDemo);
 
 	root.querySelectorAll<HTMLButtonElement>(".copy-btn").forEach((btn) => {
 		btn.addEventListener("click", async () => {

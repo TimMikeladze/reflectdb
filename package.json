@@ -1,7 +1,7 @@
 {
 	"name": "reflectdb",
 	"version": "0.1.0",
-	"description": "Real-time sync engine for TypeScript — a server database and offline-first browser clients stay in sync, with optimistic writes and typed queries.",
+	"description": "Real-time sync engine for TypeScript \u2014 a server database and offline-first browser clients stay in sync, with optimistic writes and typed queries.",
 	"keywords": [
 		"sync",
 		"sync-engine",
@@ -196,6 +196,26 @@
 			"require": {
 				"types": "./dist/cjs/client/storage/indexeddb.d.cts",
 				"default": "./dist/cjs/client/storage/indexeddb.cjs"
+			}
+		},
+		"./server/ephemeral": {
+			"import": {
+				"types": "./dist/server/ephemeral/index.d.ts",
+				"default": "./dist/server/ephemeral/index.js"
+			},
+			"require": {
+				"types": "./dist/cjs/server/ephemeral/index.d.cts",
+				"default": "./dist/cjs/server/ephemeral/index.cjs"
+			}
+		},
+		"./server/ephemeral/redis": {
+			"import": {
+				"types": "./dist/server/ephemeral/redis.d.ts",
+				"default": "./dist/server/ephemeral/redis.js"
+			},
+			"require": {
+				"types": "./dist/cjs/server/ephemeral/redis.d.cts",
+				"default": "./dist/cjs/server/ephemeral/redis.cjs"
 			}
 		},
 		"./package.json": "./package.json"

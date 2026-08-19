@@ -298,24 +298,24 @@ export function createSyncStore(config: SyncStoreConfig): SyncStore {
 		}
 
 		const unsub = client.subscribeEphemeral(cfg.key, (event: EphemeralEvent) => {
-			current = { ...current, [event.userId]: event.data as T };
+			current = { ...current, [event.clientId]: event.data as T };
 			notifySubscribers();
 
 			if (cfg.ttlMs) {
-				const existing = timers.get(event.userId);
+				const existing = timers.get(event.clientId);
 				if (existing) {
 					clearTimeout(existing);
 				}
 
 				const timer = setTimeout(() => {
 					const next = { ...current };
-					delete next[event.userId];
+					delete next[event.clientId];
 					current = next;
-					timers.delete(event.userId);
+					timers.delete(event.clientId);
 					notifySubscribers();
 				}, cfg.ttlMs);
 
-				timers.set(event.userId, timer);
+				timers.set(event.clientId, timer);
 			}
 		});
 
