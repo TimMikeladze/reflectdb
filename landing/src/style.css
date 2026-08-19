@@ -152,21 +152,87 @@ header {
 	flex: none;
 }
 
-/* Pre-1.0 marker. Shares its look with .beta-tag in the hero note so the two
-   read as the same label, not two unrelated badges. */
-.beta-pill,
-.beta-tag {
+/* Pre-1.0 marker, and the anchor for the warning it carries. The wrapper is
+   the hover target so the pointer can travel from the badge into the tooltip —
+   which holds a link — without crossing dead space. */
+.beta-wrap {
+	position: relative;
+	display: inline-flex;
+	flex: none;
+}
+.beta-pill {
 	flex: none;
 	padding: 1px 6px;
 	border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
 	border-radius: 3px;
 	background: color-mix(in srgb, var(--warn) 12%, transparent);
 	color: var(--warn);
+	font-family: inherit;
 	font-size: 10px;
 	font-weight: 600;
 	letter-spacing: 0.08em;
 	text-transform: uppercase;
 	line-height: 1.6;
+	cursor: help;
+}
+
+/* The pre-1.0 warning. Hidden with visibility rather than display so it keeps
+   its box for the fade, and stays reachable by assistive tech through
+   aria-describedby. The transparent top padding bridges the gap to the badge. */
+.beta-tip {
+	position: absolute;
+	top: 100%;
+	left: -6px;
+	z-index: 60;
+	width: max-content;
+	max-width: min(46ch, calc(100vw - 48px));
+	padding: 10px 12px;
+	border: 1px solid color-mix(in srgb, var(--warn) 26%, var(--line));
+	border-radius: 4px;
+	background: var(--bg-2);
+	box-shadow: 0 8px 24px color-mix(in srgb, #000 18%, transparent);
+	color: var(--muted);
+	font-size: 12.5px;
+	font-weight: 400;
+	line-height: 1.65;
+	letter-spacing: normal;
+	text-transform: none;
+	visibility: hidden;
+	opacity: 0;
+	transform: translateY(-3px);
+	transition:
+		opacity 0.12s ease,
+		transform 0.12s ease,
+		visibility 0s linear 0.12s;
+}
+.beta-wrap:hover .beta-tip,
+.beta-wrap:focus-within .beta-tip,
+.beta-wrap.pinned .beta-tip {
+	visibility: visible;
+	opacity: 1;
+	transform: translateY(0);
+	transition-delay: 0s;
+}
+.beta-tip a {
+	color: var(--warn);
+}
+.beta-tip a:hover {
+	border-bottom-color: var(--warn);
+}
+
+/* On a phone the badge sits far enough left that a badge-anchored box runs off
+   the right edge, so the tooltip drops its anchor and spans the bar's column
+   instead — the same trick the nav panel uses. */
+@media (max-width: 640px) {
+	.beta-wrap {
+		position: static;
+	}
+	.beta-tip {
+		left: 24px;
+		right: 24px;
+		width: auto;
+		max-width: none;
+	}
 }
 nav {
 	display: flex;
@@ -390,32 +456,6 @@ h1 .accent {
 	user-select: none;
 	margin-right: 6px;
 }
-/* Sits under the install line, so it is the last thing read before the page
-   moves on to the demos. */
-.beta-note {
-	display: flex;
-	align-items: flex-start;
-	gap: 10px;
-	max-width: 62ch;
-	margin: 20px 0 0;
-	padding: 12px 14px;
-	border: 1px solid color-mix(in srgb, var(--warn) 26%, var(--line));
-	border-radius: 4px;
-	background: color-mix(in srgb, var(--warn) 6%, var(--bg-2));
-	color: var(--muted);
-	font-size: 12.5px;
-	line-height: 1.65;
-}
-.beta-note a {
-	color: var(--warn);
-}
-.beta-note a:hover {
-	border-bottom-color: var(--warn);
-}
-.beta-tag {
-	margin-top: 2px;
-}
-
 .copy-btn {
 	font-family: var(--mono);
 	font-size: 12px;

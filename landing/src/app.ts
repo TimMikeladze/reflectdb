@@ -191,7 +191,14 @@ export function renderApp(root: HTMLElement): void {
 	root.innerHTML = `
     <header>
       <div class="bar">
-      <div class="brand">reflectdb<span class="beta-pill">beta</span></div>
+      <div class="brand">reflectdb<span class="beta-wrap">
+        <button class="beta-pill" type="button" aria-describedby="beta-tip">beta</button>
+        <span class="beta-tip" id="beta-tip" role="tooltip">
+          reflectdb is pre-1.0 and under active development. The API can still change
+          between minor releases, and it has not been hardened for production traffic.
+          Pin an exact version, and <a href="${REPO}/issues">tell us what breaks</a>.
+        </span>
+      </span></div>
       <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu">menu</button>
       <nav id="site-nav">
         <a href="#how">how it works</a>
@@ -229,15 +236,6 @@ export function renderApp(root: HTMLElement): void {
         <code><span class="prompt">$</span>bun add reflectdb</code>
         <button class="copy-btn" data-copy="bun add reflectdb">copy</button>
       </div>
-
-      <p class="beta-note" role="note">
-        <span class="beta-tag">beta</span>
-        <span>
-          reflectdb is pre-1.0 and under active development. The API can still change
-          between minor releases, and it has not been hardened for production traffic.
-          Pin an exact version, and <a href="${REPO}/issues">tell us what breaks</a>.
-        </span>
-      </p>
     </section>
 
     ${section(
@@ -671,6 +669,9 @@ export function renderApp(root: HTMLElement): void {
 	const themeBtn = root.querySelector<HTMLButtonElement>(".theme-btn");
 	if (themeBtn) wireTheme(themeBtn);
 
+	const betaWrap = root.querySelector<HTMLElement>(".beta-wrap");
+	if (betaWrap) wireBetaTip(betaWrap);
+
 	const presenceDemo = root.querySelector<HTMLElement>("#presence-demo");
 	if (presenceDemo) mountPresenceDemo(presenceDemo);
 
@@ -690,6 +691,37 @@ export function renderApp(root: HTMLElement): void {
 				btn.textContent = "press ⌘C";
 			}
 		});
+	});
+}
+
+/**
+ * The pre-1.0 warning, folded into the wordmark's badge. Hover and keyboard
+ * focus are handled in CSS; this only adds what CSS cannot do — a tap target
+ * for touch, where there is no hover, and Escape to dismiss. `pinned` keeps the
+ * tooltip up after a tap until something else is touched, so the link inside it
+ * can be reached.
+ */
+function wireBetaTip(wrap: HTMLElement): void {
+	const button = wrap.querySelector<HTMLButtonElement>(".beta-pill");
+	if (!button) return;
+
+	const setPinned = (pinned: boolean): void => {
+		wrap.classList.toggle("pinned", pinned);
+	};
+
+	button.addEventListener("click", (event) => {
+		event.stopPropagation();
+		setPinned(!wrap.classList.contains("pinned"));
+	});
+
+	document.addEventListener("click", (event) => {
+		if (!wrap.contains(event.target as Node)) setPinned(false);
+	});
+
+	document.addEventListener("keydown", (event) => {
+		if (event.key !== "Escape") return;
+		setPinned(false);
+		if (wrap.contains(document.activeElement)) button.blur();
 	});
 }
 
