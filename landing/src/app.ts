@@ -188,6 +188,7 @@ const FEATURE_CARDS: Card[] = [
 export function renderApp(root: HTMLElement): void {
 	root.innerHTML = `
     <header>
+      <div class="bar">
       <div class="brand">reflectdb<span class="beta-pill">beta</span></div>
       <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu">menu</button>
       <nav id="site-nav">
@@ -203,8 +204,10 @@ export function renderApp(root: HTMLElement): void {
         <svg class="gh-icon" viewBox="0 0 16 16" width="17" height="17" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38l-.01-1.49c-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48l-.01 2.19c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"/></svg>
         <span class="gh-label">github</span>
       </a>
+      </div>
     </header>
 
+    <div class="page">
     <section id="hero">
       <h1>real-time sync engine<br/>for <span class="accent" id="rotator" aria-hidden="true">${ROTATING[0]}</span><span class="period">.</span><span class="sr-only">${ROTATING.join(", ")}</span><span class="cursor"></span></h1>
       <p class="tagline">
@@ -608,6 +611,7 @@ export function renderApp(root: HTMLElement): void {
         <a href="${REPO}/issues">issues</a>
       </div>
     </footer>
+    </div>
   `;
 
 	const rotator = root.querySelector<HTMLElement>("#rotator");

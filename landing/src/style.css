@@ -103,19 +103,33 @@ a:hover {
 	border-bottom-color: var(--accent-2);
 }
 
-#app {
+/* The measured column every section lines up with. It lives on .page rather
+   than on #app so the bar above it can run the full width of the window while
+   its contents stay on the same column. */
+.page {
 	max-width: 1140px;
 	margin: 0 auto;
 	padding: 0 24px 96px;
 }
 
-/* Sticky, one-line header. The negative margins pull it out of #app's padding
-   so the bar and its blur run edge to edge while the contents stay aligned
-   with the rest of the page. */
+/* Sticky, one-line header. The element itself is unconstrained, so its blur
+   and its rule run the full width of the window; .bar inside it carries the
+   same max-width and padding as .page, keeping the wordmark and the links on
+   the page's column. */
 header {
 	position: sticky;
 	top: 0;
 	z-index: 50;
+	margin-bottom: 32px;
+	background: color-mix(in srgb, var(--bg) 88%, transparent);
+	backdrop-filter: blur(10px);
+	-webkit-backdrop-filter: blur(10px);
+	border-bottom: 1px solid var(--line);
+}
+
+.bar {
+	/* Anchors the narrow-screen nav panel to the column, not to the window. */
+	position: relative;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -123,12 +137,9 @@ header {
 	   last link and the repo link, which used to carry its own extra margin. */
 	gap: 18px;
 	height: 44px;
-	margin: 0 -24px 32px;
+	max-width: 1140px;
+	margin: 0 auto;
 	padding: 0 24px;
-	background: color-mix(in srgb, var(--bg) 88%, transparent);
-	backdrop-filter: blur(10px);
-	-webkit-backdrop-filter: blur(10px);
-	border-bottom: 1px solid var(--line);
 }
 
 .brand {
@@ -245,7 +256,7 @@ header.open .menu-btn::after {
 /* Below this width the six links no longer fit beside the wordmark, so they
    collapse into a dropdown and the repo link drops to its mark alone. */
 @media (max-width: 760px) {
-	header {
+	.bar {
 		gap: 12px;
 	}
 
@@ -1273,12 +1284,14 @@ footer a:hover {
 }
 
 @media (max-width: 640px) {
-	#app {
+	.page {
 		padding: 0 16px 72px;
 	}
 	header {
+		margin-bottom: 24px;
+	}
+	.bar {
 		height: 40px;
-		margin: 0 -16px 24px;
 		padding: 0 16px;
 	}
 	.brand {
