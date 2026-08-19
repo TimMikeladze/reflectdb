@@ -81,7 +81,7 @@ You bring your own types and your own database. reflectdb handles the protocol, 
 | Demo | Try it | What it demonstrates |
 |------|--------|----------------------|
 | **Infinite multiplayer Tetris** | [Play live](https://reflectdb-tetris.fly.dev/) · [source](./examples/tetris/) | Optimistic input prediction, server reconciliation and gravity, a live leaderboard, per-player progression, and Bun SQLite persistence in one perpetual game. Open two tabs to add another player. |
-| **Collaborative whiteboard** | [Draw live](https://reflectdb-whiteboard.fly.dev/) · [source](./examples/whiteboard/) | Freeform drawing by default, optional Pictionary rounds, authenticated rooms, ephemeral cursors, chat, presence, and per-user query results. Open two tabs to draw with yourself. |
+| **Collaborative whiteboard** | [Draw live](https://reflectdb-whiteboard.fly.dev/) · [source](./examples/whiteboard/) | Freeform drawing by default, optional Pictionary rounds, guest-authenticated rooms, ephemeral cursors, chat, presence, and per-user query results. Open two tabs to draw with yourself. |
 
 Both demos run on one auto-stopping Fly Machine with no volume, so the first load
 after an idle period may take a moment. Their data is intentionally ephemeral
@@ -872,7 +872,7 @@ What it demonstrates:
 |---------|-------|
 | Drizzle-typed schema, SQLite op log | [`schema.ts`](./examples/whiteboard/schema.ts) |
 | WebSocket transport on Bun | [`server.tsx`](./examples/whiteboard/server.tsx) |
-| Authentication via better-auth (email/password + anonymous) | [`auth.ts`](./examples/whiteboard/auth.ts) |
+| Guest-only authentication via better-auth's anonymous plugin | [`auth.ts`](./examples/whiteboard/auth.ts) |
 | `params`-scoped queries (`strokes`, `messages` per game) | [`server.tsx`](./examples/whiteboard/server.tsx) |
 | Per-user query results — only the drawer receives the secret word | `roundWord` in [`server.tsx`](./examples/whiteboard/server.tsx) |
 | Server-side game loop with a mutex + `notifyChange` | `tick`, `withLock` in [`server.tsx`](./examples/whiteboard/server.tsx) |

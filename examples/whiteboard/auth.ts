@@ -6,7 +6,14 @@ import { AUTH_DB_PATH, BASE_URL } from "./config.ts";
 const authDb = new Database(AUTH_DB_PATH);
 authDb.run("PRAGMA journal_mode = WAL");
 
-// better-auth tables (camelCase columns)
+/**
+ * better-auth tables (camelCase columns).
+ *
+ * The demo has no sign-up: every visitor is a guest, so `user` only ever holds
+ * anonymous rows and `account` / `verification` stay empty. They are still
+ * created because better-auth's adapter reads and clears them when a user is
+ * deleted, and a missing table there is a 500 rather than a no-op.
+ */
 authDb.run(`CREATE TABLE IF NOT EXISTS "user" (
 	id TEXT PRIMARY KEY,
 	name TEXT NOT NULL,
@@ -77,13 +84,32 @@ function resolveSecret(db: Database): string {
 	return generated;
 }
 
+/**
+ * Every player is a guest, so nobody types a name at sign-up. Without this the
+ * anonymous plugin names all of them "Anonymous" and a Pictionary scoreboard
+ * becomes unreadable. Collisions are possible and harmless — the engine keys
+ * players by user id, never by name.
+ */
+const ADJECTIVES = [
+	"Swift", "Clever", "Brave", "Sleepy", "Sneaky", "Jolly",
+	"Wild", "Calm", "Lucky", "Grumpy", "Fuzzy", "Bold",
+];
+const ANIMALS = [
+	"Otter", "Falcon", "Badger", "Panda", "Heron", "Lynx",
+	"Walrus", "Gecko", "Marmot", "Puffin", "Weasel", "Moose",
+];
+
+function guestName(): string {
+	const pick = <T>(list: T[]) => list[Math.floor(Math.random() * list.length)]!;
+	return `${pick(ADJECTIVES)} ${pick(ANIMALS)}`;
+}
+
 export const auth = betterAuth({
 	baseURL: BASE_URL,
 	secret: resolveSecret(authDb),
 	database: authDb,
 	basePath: "/api/auth",
-	emailAndPassword: { enabled: true },
-	plugins: [bearer(), anonymous()],
+	plugins: [bearer(), anonymous({ generateName: () => guestName() })],
 	trustedOrigins: [BASE_URL],
 	// Fly's edge terminates TLS and forwards the caller's address. Without a
 	// header to read it from, better-auth rate-limits every visitor into one

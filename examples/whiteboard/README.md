@@ -12,9 +12,10 @@ bun dev
 # http://localhost:3003 — open another tab to draw together
 ```
 
-Sign in with an email and password or take the **Continue as Guest** button;
-both go through [better-auth](https://better-auth.com), and the session token is
-what authenticates the sync socket.
+There are no accounts. **Start drawing** mints an anonymous
+[better-auth](https://better-auth.com) user with a generated guest name, and
+that session's token is what authenticates the sync socket. **New guest** in the
+top bar drops the session; the next one arrives under a new name.
 
 ## Two modes, one canvas
 
@@ -33,7 +34,7 @@ the answer.
 | Pattern                                                                         | Where                                                     |
 | ------------------------------------------------------------------------------- | --------------------------------------------------------- |
 | Drizzle-typed schema over Bun SQLite, sharing one file with the op log          | [`schema.ts`](./schema.ts)                                |
-| Authentication with better-auth (email/password + anonymous guests)             | [`auth.ts`](./auth.ts)                                    |
+| Guest-only authentication with better-auth's anonymous plugin                   | [`auth.ts`](./auth.ts)                                    |
 | The session token authenticating the WebSocket, not just the HTTP API           | `server.auth` in [`server.tsx`](./server.tsx)             |
 | `params`-scoped queries — strokes, players, and messages per room               | [`server.tsx`](./server.tsx)                              |
 | Per-user query results: only the drawer's connection receives the secret word   | `roundWord` in [`server.tsx`](./server.tsx)               |
@@ -75,7 +76,8 @@ They vanish when a tab closes instead of leaving rows to reap.
 
 **Two SQLite files.** `whiteboard.db` holds application rows plus reflectdb's op
 log, processed op ids and server clock. `auth.db` holds better-auth's users and
-sessions, deliberately outside the synchronized database. Both paths, the port
+sessions — all of them anonymous — deliberately outside the synchronized
+database. Both paths, the port
 and the public origin come from the environment — see [`config.ts`](./config.ts).
 
 ## Verification
@@ -90,7 +92,7 @@ The included [`fly.toml`](./fly.toml) runs one `shared-cpu-1x` Machine with
 512 MB RAM. It scales to zero when idle and starts again on the next request.
 There is no Fly Volume: `persist_rootfs = "restart"` keeps both SQLite files
 across an ordinary Machine stop/start, but a deployment or a Machine replacement
-resets the demo — rooms, drawings and accounts included.
+resets the demo — rooms, drawings and guest sessions included.
 
 From the repository root:
 
@@ -110,7 +112,7 @@ other. Change it alongside the app name if you deploy under a different one.
 better-auth also refuses to start in production on its built-in default secret.
 Set your own with `fly secrets set BETTER_AUTH_SECRET=$(openssl rand -hex 32)`;
 without it the demo generates a secret on first boot and stores it next to the
-accounts it signs for, so sessions survive a restart but not a redeploy.
+guests it signs for, so sessions survive a restart but not a redeploy.
 
 ### Automatic deploys
 

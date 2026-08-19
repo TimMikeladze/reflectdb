@@ -169,40 +169,14 @@ function screenToWorld(
 	};
 }
 
-// ── Auth Form ───────────────────────────────────────────────────────────
+// ── Guest Gate ──────────────────────────────────────────────────────────
 
-function AuthForm() {
-	const [mode, setMode] = useState<"signin" | "signup">("signin");
-	const [name, setName] = useState("");
-	const [email, setEmail] = useState("");
-	const [password, setPassword] = useState("");
+// The demo has no accounts to sign in to — one button mints an anonymous
+// better-auth user, and its session token is what authenticates the sync
+// socket. Nothing to remember, nothing to clean up.
+function GuestGate() {
 	const [error, setError] = useState("");
 	const [loading, setLoading] = useState(false);
-
-	const handleSubmit = async (e: React.FormEvent) => {
-		e.preventDefault();
-		setError("");
-		setLoading(true);
-		try {
-			if (mode === "signup") {
-				const { error } = await authClient.signUp.email({ name, email, password });
-				if (error) {
-					setError(error.message ?? "Sign up failed");
-					return;
-				}
-			} else {
-				const { error } = await authClient.signIn.email({ email, password });
-				if (error) {
-					setError(error.message ?? "Sign in failed");
-					return;
-				}
-			}
-		} catch (err) {
-			setError(err instanceof Error ? err.message : "Something went wrong");
-		} finally {
-			setLoading(false);
-		}
-	};
 
 	const handleGuest = async () => {
 		setError("");
@@ -222,59 +196,11 @@ function AuthForm() {
 		<div className="auth-container">
 			<h1>reflectdb · whiteboard + pictionary</h1>
 			<p className="subtitle">Draw together. Or guess what someone drew.</p>
-			<form onSubmit={handleSubmit} className="auth-form">
-				{mode === "signup" && (
-					<input
-						type="text"
-						placeholder="Name"
-						value={name}
-						onChange={(e) => setName(e.target.value)}
-						required
-					/>
-				)}
-				<input
-					type="email"
-					placeholder="Email"
-					value={email}
-					onChange={(e) => setEmail(e.target.value)}
-					required
-				/>
-				<input
-					type="password"
-					placeholder="Password"
-					value={password}
-					onChange={(e) => setPassword(e.target.value)}
-					required
-					minLength={8}
-				/>
-				{error && <div className="error">{error}</div>}
-				<button type="submit" disabled={loading}>
-					{loading ? "..." : mode === "signin" ? "Sign In" : "Sign Up"}
-				</button>
-			</form>
-			<p className="toggle">
-				{mode === "signin" ? (
-					<>
-						No account?{" "}
-						<button type="button" className="link" onClick={() => setMode("signup")}>
-							Sign up
-						</button>
-					</>
-				) : (
-					<>
-						Have an account?{" "}
-						<button type="button" className="link" onClick={() => setMode("signin")}>
-							Sign in
-						</button>
-					</>
-				)}
-			</p>
-			<div className="guest-divider">
-				<span>or</span>
-			</div>
+			{error && <div className="error">{error}</div>}
 			<button type="button" className="guest-btn" onClick={handleGuest} disabled={loading}>
-				Continue as Guest
+				{loading ? "..." : "Start drawing"}
 			</button>
+			<p className="subtitle">No sign-up — you get a guest name and a room.</p>
 		</div>
 	);
 }
@@ -1134,7 +1060,7 @@ function GameRoom({
 
 // ── Status Bar ──────────────────────────────────────────────────────────
 
-function StatusBar({ userName, onSignOut }: { userName: string; onSignOut: () => void }) {
+function StatusBar({ userName, onNewGuest }: { userName: string; onNewGuest: () => void }) {
 	const status = useSyncStatus();
 	return (
 		<header className="topbar">
@@ -1144,8 +1070,8 @@ function StatusBar({ userName, onSignOut }: { userName: string; onSignOut: () =>
 			</div>
 			<div className="header-right">
 				<span className="user-name">{userName}</span>
-				<button type="button" className="sign-out" onClick={onSignOut}>
-					Sign out
+				<button type="button" className="sign-out" onClick={onNewGuest} title="Drop this guest session and start over">
+					New guest
 				</button>
 			</div>
 		</header>
@@ -1156,13 +1082,15 @@ function StatusBar({ userName, onSignOut }: { userName: string; onSignOut: () =>
 
 function Shell({ userName, userId }: { userName: string; userId: string }) {
 	const [activeGame, setActiveGame] = useState<string | null>(null);
-	const handleSignOut = useCallback(async () => {
+	// Guests are disposable: dropping the session is the only "log out" there
+	// is, and the next visit mints a new name.
+	const handleNewGuest = useCallback(async () => {
 		await authClient.signOut();
 	}, []);
 
 	return (
 		<>
-			<StatusBar userName={userName} onSignOut={handleSignOut} />
+			<StatusBar userName={userName} onNewGuest={handleNewGuest} />
 			{activeGame ? (
 				<GameRoom
 					key={activeGame}
@@ -1197,7 +1125,7 @@ function AuthenticatedApp({
 export function App() {
 	const { data: session, isPending } = authClient.useSession();
 	if (isPending) return <div className="loading">Loading...</div>;
-	if (!session?.session) return <AuthForm />;
+	if (!session?.session) return <GuestGate />;
 	const userName = session.user.name || `Guest ${session.user.id.slice(0, 4)}`;
 	return (
 		<AuthenticatedApp
