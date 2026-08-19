@@ -81,7 +81,7 @@ You bring your own types and your own database. reflectdb handles the protocol, 
 | Demo | Try it | What it demonstrates |
 |------|--------|----------------------|
 | **Infinite multiplayer Tetris** | [Play live](https://reflectdb-tetris.fly.dev/) · [source](./examples/tetris/) | Optimistic input prediction, server reconciliation and gravity, a live leaderboard, per-player progression, and Bun SQLite persistence in one perpetual game. Open two tabs to add another player. |
-| **Collaborative whiteboard** | [Draw live](https://reflectdb-whiteboard.fly.dev/) · [source](./examples/whiteboard/) | Freeform drawing by default, optional Pictionary rounds, guest-authenticated rooms, ephemeral cursors, chat, presence, and per-user query results. Open two tabs to draw with yourself. |
+| **Collaborative whiteboard** | [Draw live](https://reflectdb-whiteboard.fly.dev/) · [source](./examples/whiteboard/) | Freeform drawing by default, optional Pictionary rounds, guest-authenticated rooms, ephemeral cursors, chat, presence, and per-user query results. Rooms and everything in them are deleted 30 minutes after they are created. Open two tabs to draw with yourself. |
 
 Both demos run on one auto-stopping Fly Machine with no volume, so the first load
 after an idle period may take a moment. Their data is intentionally ephemeral
@@ -878,6 +878,10 @@ Two modes:
 - **Freeform draw** — every player can draw on a shared canvas. Strokes are LWW per row.
 - **Pictionary** — players take turns drawing while the others guess in chat. The server picks a word, runs a per-round timer, awards points based on remaining time, advances the drawer, and ends the game after N full rotations.
 
+Rooms are ephemeral: 30 minutes after a room is created, a server-side sweep
+deletes it together with every stroke, chat line, player row and round secret
+belonging to it. Both tabs bounce back to the lobby when it happens.
+
 What it demonstrates:
 
 | Pattern | Where |
@@ -892,6 +896,7 @@ What it demonstrates:
 | `readonly` field enforcement to keep the engine state out of client hands | [`schema.ts`](./examples/whiteboard/schema.ts) |
 | Ephemeral cursors per game, scoped via `key: \`cursor:${gameId}\`` | [`app.tsx`](./examples/whiteboard/app.tsx) |
 | Per-table rate limiting (loose for strokes, tight for chat) | `server.rateLimit` in [`server.tsx`](./examples/whiteboard/server.tsx) |
+| TTL sweep deleting whole rooms and their content out of band, with `notifyChange` turning it into client deletes | `sweepExpiredRooms` in [`schema.ts`](./examples/whiteboard/schema.ts) |
 | One-Machine Fly.io deployment, prebuilt bundle and env-driven config | [`Dockerfile`](./examples/whiteboard/Dockerfile) / [`fly.toml`](./examples/whiteboard/fly.toml) / [`config.ts`](./examples/whiteboard/config.ts) |
 
 The included Fly.io config runs on one auto-stopping 512 MB Machine; deploying

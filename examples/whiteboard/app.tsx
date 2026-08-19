@@ -7,6 +7,12 @@ import {
 	useSyncStatus,
 	useEphemeral,
 } from "../../src/react/index.ts";
+import {
+	ROOM_TTL_MS,
+	formatCountdown,
+	roomExpiresAt,
+	timestampToMillis,
+} from "./expiry.ts";
 
 // Everything is served by the same Bun process, so the API and the sync socket
 // live on whatever origin loaded the page: localhost in development, the Fly
@@ -210,18 +216,28 @@ function GuestGate() {
 function Lobby({
 	onEnter,
 	userId,
+	expiredNotice = false,
 }: {
 	onEnter: (id: string) => void;
 	userId: string;
+	expiredNotice?: boolean;
 }) {
 	const { rows, insert, remove } = useSync<Game>("games");
 
 	const [name, setName] = useState("");
 	const [mode, setMode] = useState<"freeform" | "pictionary">("freeform");
 
+	// A sweep runs on the server every SWEEP_INTERVAL_MS, so a room can sit up
+	// to that long past its deadline before its row disappears. Drop it from
+	// the lobby the moment the clock says it is done — entering a room the
+	// next sweep is about to delete is a dead end.
+	const now = useNow(1000);
 	const sorted = useMemo(
-		() => [...rows].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)),
-		[rows],
+		() =>
+			[...rows]
+				.filter((g) => roomExpiresAt(g.createdAt) > now)
+				.sort((a, b) => timestampToMillis(b.createdAt) - timestampToMillis(a.createdAt)),
+		[rows, now],
 	);
 
 	const create = useCallback(
@@ -247,7 +263,10 @@ function Lobby({
 			<header className="lobby-header">
 				<div>
 					<h1>Rooms</h1>
-					<p className="subtitle">Pick a room or spin up a new one.</p>
+					<p className="subtitle">
+						Pick a room or spin up a new one. Every room and everything in it is
+						deleted {ROOM_TTL_MS / 60_000} minutes after it is created.
+					</p>
 				</div>
 				<form className="create-form" onSubmit={create}>
 					<input
@@ -266,6 +285,13 @@ function Lobby({
 					<button type="submit">Create</button>
 				</form>
 			</header>
+			{expiredNotice && (
+				<div className="expiry-notice">
+					That room is gone — rooms are deleted {ROOM_TTL_MS / 60_000} minutes after
+					they are created, and a creator can remove one sooner. Everything in it went
+					with it. Create a new one to keep drawing.
+				</div>
+			)}
 			<div className="room-grid">
 				{sorted.length === 0 && (
 					<div className="empty-rooms">No rooms yet — create the first one above.</div>
@@ -286,6 +312,9 @@ function Lobby({
 							</span>
 						</div>
 						<div className="room-name">{g.name}</div>
+						<div className="room-expiry">
+							Expires in {formatCountdown(roomExpiresAt(g.createdAt) - now)}
+						</div>
 						<div className="room-meta">
 							{g.mode === "pictionary"
 								? `Round ${g.currentRound || 0}/${g.totalRounds}`
@@ -312,12 +341,17 @@ function Lobby({
 
 // ── Pictionary HUD ──────────────────────────────────────────────────────
 
-function useCountdown(target: number) {
-	const [now, setNow] = useState(Date.now());
+function useNow(everyMs: number) {
+	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
-		const i = setInterval(() => setNow(Date.now()), 250);
+		const i = setInterval(() => setNow(Date.now()), everyMs);
 		return () => clearInterval(i);
-	}, []);
+	}, [everyMs]);
+	return now;
+}
+
+function useCountdown(target: number) {
+	const now = useNow(250);
 	return Math.max(0, Math.ceil((target - now) / 1000));
 }
 
@@ -833,7 +867,10 @@ function ChatPanel({
 	const scrollRef = useRef<HTMLDivElement>(null);
 
 	const sorted = useMemo(
-		() => [...rows].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)),
+		() =>
+			[...rows].sort(
+				(a, b) => timestampToMillis(a.createdAt) - timestampToMillis(b.createdAt),
+			),
 		[rows],
 	);
 
@@ -912,6 +949,22 @@ function ChatPanel({
 
 // ── Game Room ───────────────────────────────────────────────────────────
 
+function RoomExpiry({ createdAt }: { createdAt: unknown }) {
+	const now = useNow(1000);
+	const remaining = roomExpiresAt(createdAt) - now;
+	// Under two minutes the room is about to be swept — say so loudly enough
+	// that nobody starts a fresh round they cannot finish.
+	const urgent = remaining <= 2 * 60_000;
+	return (
+		<span
+			className={`room-expiry-badge ${urgent ? "urgent" : ""}`}
+			title={`Rooms and everything in them are deleted ${ROOM_TTL_MS / 60_000} minutes after the room is created`}
+		>
+			Expires in {formatCountdown(remaining)}
+		</span>
+	);
+}
+
 function GameRoom({
 	gameId,
 	userName,
@@ -921,10 +974,21 @@ function GameRoom({
 	gameId: string;
 	userName: string;
 	userId: string;
-	onLeave: () => void;
+	onLeave: (reason?: "expired") => void;
 }) {
 	const { rows: gameRows, update: updateGame } = useSync<Game>("games");
 	const game = useMemo(() => gameRows.find((g) => g.id === gameId), [gameRows, gameId]);
+
+	// The room's row is gone once the sweep deletes it — or once its creator
+	// does. Either way the canvas below has nothing left to draw on, so send
+	// the tab back to the lobby instead of parking it on "Loading room...".
+	// Only after the room has actually been seen: before the first snapshot
+	// lands, an absent row means "still loading", not "gone".
+	const seenRoom = useRef(false);
+	if (game) seenRoom.current = true;
+	useEffect(() => {
+		if (!game && seenRoom.current) onLeave("expired");
+	}, [game, onLeave]);
 
 	const { rows: playerRows, insert: insertPlayer } = useSync<Player>("players", {
 		params: { gameId },
@@ -983,8 +1047,8 @@ function GameRoom({
 	if (!game) {
 		return (
 			<div className="loading">
-				Loading room...
-				<button type="button" className="link-btn" onClick={onLeave}>
+				{seenRoom.current ? "This room is gone." : "Loading room..."}
+				<button type="button" className="link-btn" onClick={() => onLeave()}>
 					← Lobby
 				</button>
 			</div>
@@ -998,7 +1062,7 @@ function GameRoom({
 	return (
 		<div className="game-room">
 			<header className="room-header">
-				<button type="button" className="back-btn" onClick={onLeave}>
+				<button type="button" className="back-btn" onClick={() => onLeave()}>
 					← Lobby
 				</button>
 				<div className="room-title">
@@ -1008,6 +1072,7 @@ function GameRoom({
 					<h1>{game.name}</h1>
 				</div>
 				<div className="room-actions">
+					<RoomExpiry createdAt={game.createdAt} />
 					{game.mode === "pictionary" && game.state !== "waiting" && (
 						<button type="button" className="reset-btn" onClick={handleReset}>
 							Reset
@@ -1082,6 +1147,17 @@ function StatusBar({ userName, onNewGuest }: { userName: string; onNewGuest: () 
 
 function Shell({ userName, userId }: { userName: string; userId: string }) {
 	const [activeGame, setActiveGame] = useState<string | null>(null);
+	const [expiredRoom, setExpiredRoom] = useState(false);
+
+	const leaveRoom = useCallback((reason?: "expired") => {
+		setActiveGame(null);
+		setExpiredRoom(reason === "expired");
+	}, []);
+
+	const enterRoom = useCallback((id: string) => {
+		setExpiredRoom(false);
+		setActiveGame(id);
+	}, []);
 	// Guests are disposable: dropping the session is the only "log out" there
 	// is, and the next visit mints a new name.
 	const handleNewGuest = useCallback(async () => {
@@ -1097,10 +1173,10 @@ function Shell({ userName, userId }: { userName: string; userId: string }) {
 					gameId={activeGame}
 					userName={userName}
 					userId={userId}
-					onLeave={() => setActiveGame(null)}
+					onLeave={leaveRoom}
 				/>
 			) : (
-				<Lobby onEnter={setActiveGame} userId={userId} />
+				<Lobby onEnter={enterRoom} userId={userId} expiredNotice={expiredRoom} />
 			)}
 		</>
 	);

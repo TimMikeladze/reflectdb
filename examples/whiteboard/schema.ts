@@ -1,10 +1,11 @@
 import { Database } from "bun:sqlite";
-import { eq } from "drizzle-orm";
+import { eq, inArray, lt, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 import { defineSyncQueries, t } from "../../src/core/schema.ts";
 import { createSqliteStorage } from "../../src/server/storage/sqlite.ts";
 import { DB_PATH } from "./config.ts";
+import { ROOM_TTL_MS } from "./expiry.ts";
 import type { ResolvedOp } from "../../src/server/types.ts";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 
@@ -194,6 +195,68 @@ export function createDb(path = DB_PATH) {
 	const storage = createSqliteStorage({ db: sqlite });
 
 	return { db, sqlite, storage };
+}
+
+// ── Expiry sweep ────────────────────────────────────────────────────────
+
+/** Physical tables the sweep can touch, in the order they are cleared. */
+const CONTENT_TABLES = ["strokes", "messages", "players", "game_secrets"] as const;
+
+export interface SweepResult {
+	/** Rooms whose lifetime ran out on this pass. */
+	gameIds: string[];
+	/** Physical tables that lost rows — the caller notifies exactly these. */
+	tables: string[];
+}
+
+/**
+ * Deletes every room older than the TTL along with everything drawn, typed or
+ * joined inside it, then clears content left behind by a room that is already
+ * gone. That second pass is what makes the sweep self-healing: a crash halfway
+ * through a delete, or a room removed by its creator while a stroke was in
+ * flight, leaves orphaned rows that the next pass collects.
+ *
+ * Synchronous on purpose — bun:sqlite is synchronous, so the whole sweep runs
+ * as one uninterrupted step with no window for a half-deleted room to be
+ * queried by a subscriber.
+ */
+export function sweepExpiredRooms(
+	db: BunSQLiteDatabase,
+	options: { ttlMs?: number; now?: number } = {},
+): SweepResult {
+	const ttlMs = options.ttlMs ?? ROOM_TTL_MS;
+	const cutoff = new Date((options.now ?? Date.now()) - ttlMs);
+
+	const expired = db
+		.select({ id: games.id })
+		.from(games)
+		.where(lt(games.createdAt, cutoff))
+		.all();
+	const gameIds = expired.map((row) => row.id);
+	const touched = new Set<string>();
+
+	if (gameIds.length > 0) {
+		db.delete(strokes).where(inArray(strokes.gameId, gameIds)).run();
+		db.delete(messages).where(inArray(messages.gameId, gameIds)).run();
+		db.delete(players).where(inArray(players.gameId, gameIds)).run();
+		db.delete(gameSecrets).where(inArray(gameSecrets.gameId, gameIds)).run();
+		db.delete(games).where(inArray(games.id, gameIds)).run();
+		touched.add("games");
+		for (const table of CONTENT_TABLES) touched.add(table);
+	}
+
+	// Every content table keys its room by `game_id`, including game_secrets.
+	for (const table of CONTENT_TABLES) {
+		const orphaned = `${table} WHERE game_id NOT IN (SELECT id FROM games)`;
+		// `db.get` hands raw SQL back as a value tuple, `db.all` as rows.
+		const [orphans] = db.all<{ n: number }>(sql.raw(`SELECT COUNT(*) AS n FROM ${orphaned}`));
+		if ((orphans?.n ?? 0) > 0) {
+			db.run(sql.raw(`DELETE FROM ${orphaned}`));
+			touched.add(table);
+		}
+	}
+
+	return { gameIds, tables: [...touched] };
 }
 
 // ── Auth context ────────────────────────────────────────────────────────

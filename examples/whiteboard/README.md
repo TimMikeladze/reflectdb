@@ -5,6 +5,9 @@ top of the same rows. Rooms are created from a lobby, strokes and chat replicate
 to everyone in the room, peer cursors move in real time, and the round engine —
 word choice, timer, scoring, drawer rotation — runs entirely on the server.
 
+Nothing sticks around: a room and everything drawn or typed in it is deleted 30
+minutes after the room is created.
+
 ```bash
 cd examples/whiteboard
 bun install
@@ -43,6 +46,7 @@ the answer.
 | `readonly` fields keeping engine state out of client hands                      | [`schema.ts`](./schema.ts)                                |
 | Ephemeral peer cursors, scoped per room with `key: cursor:${gameId}`            | `useCursors` in [`app.tsx`](./app.tsx)                    |
 | Per-table rate limits — loose for strokes, tight for chat                       | `server.rateLimit` in [`server.tsx`](./server.tsx)        |
+| Out-of-band deletes (a TTL sweep) reaching clients through `notifyChange`       | `sweepExpiredRooms` in [`schema.ts`](./schema.ts)         |
 
 ## How it works
 
@@ -70,6 +74,19 @@ time, starts the next pick after the scoreboard pause, and auto-picks for a
 drawer who never chose. Clients render a countdown from `roundEndsAt` but never
 decide that a round is over.
 
+**Rooms expire after 30 minutes.** The deployment is a public sandbox on one
+small Machine, so `ROOM_TTL_MS` in [`expiry.ts`](./expiry.ts) caps how long
+anything lives. Every 30 seconds the server deletes rooms past that age along
+with their strokes, chat, player rows and round secrets, then sweeps up content
+whose room is already gone — which is what makes an interrupted delete
+self-healing. The deletes go through drizzle rather than the sync pipeline, so a
+5,000-stroke room costs one `DELETE` instead of 5,000 op-log rows; the
+`notifyChange` that follows makes every subscriber re-run its query, and the
+diff against the previous result set is what turns the vanished rows into
+deletes on the client. A tab sitting in a room that expires under it lands back
+in the lobby with a note; the header and the lobby cards count the room down
+from the same constant the sweeper uses.
+
 **Cursors are ephemeral.** Peer pointers move through `useEphemeral`, keyed per
 room, so they fan out to the room without touching the database or the op log.
 They vanish when a tab closes instead of leaving rows to reap.
@@ -84,6 +101,7 @@ and the public origin come from the environment — see [`config.ts`](./config.t
 
 ```bash
 bunx tsc -p examples/whiteboard/tsconfig.json --noEmit
+bun test ./examples/whiteboard/expiry.test.ts   # room expiry sweep
 ```
 
 ## Deploy to Fly.io
@@ -92,7 +110,9 @@ The included [`fly.toml`](./fly.toml) runs one `shared-cpu-1x` Machine with
 512 MB RAM. It scales to zero when idle and starts again on the next request.
 There is no Fly Volume: `persist_rootfs = "restart"` keeps both SQLite files
 across an ordinary Machine stop/start, but a deployment or a Machine replacement
-resets the demo — rooms, drawings and guest sessions included.
+resets the demo — rooms, drawings and guest sessions included. The 30-minute
+sweep means the database never grows far anyway; a Machine that slept through a
+room's whole lifetime sweeps once on wake, before it serves a request.
 
 From the repository root:
 

@@ -6,6 +6,7 @@ import { createSyncServer } from "../../src/server/typed-server.ts";
 import type { ResolvedOp } from "../../src/server/types.ts";
 import { auth } from "./auth.ts";
 import { IS_PRODUCTION, PORT } from "./config.ts";
+import { ROOM_TTL_MS, SWEEP_INTERVAL_MS } from "./expiry.ts";
 import {
 	queries,
 	games,
@@ -19,6 +20,7 @@ import {
 	mutateGame,
 	mutatePlayer,
 	mutateStroke,
+	sweepExpiredRooms,
 } from "./schema.ts";
 import type { AppAuth, RoundWord } from "./schema.ts";
 
@@ -358,6 +360,33 @@ const tickInterval = setInterval(() => {
 if (import.meta.hot) {
 	import.meta.hot.dispose(() => clearInterval(tickInterval));
 }
+
+// ── Room expiry ─────────────────────────────────────────────────────────
+
+// The demo is a public sandbox: no room outlives ROOM_TTL_MS, and neither does
+// anything drawn or typed in it. Deleting through drizzle rather than through
+// the sync pipeline keeps a 5,000-stroke room from writing 5,000 op-log rows;
+// the notify makes every subscriber re-run its query, and the diff the engine
+// takes against the previous result set is what turns the vanished rows into
+// deletes on the client. Clients that were offline for the sweep re-subscribe
+// and get a fresh snapshot instead.
+async function sweep() {
+	const { gameIds, tables } = sweepExpiredRooms(db);
+	for (const table of tables) await server.notifyChange(table);
+	if (gameIds.length > 0) {
+		console.log(`[expiry] swept ${gameIds.length} room(s) older than ${ROOM_TTL_MS / 60_000}m`);
+	}
+}
+
+// `server.interval` disposes itself on `bun --hot` reload and on close, so a
+// reload cannot leave a second sweeper running against the same database.
+server.interval(SWEEP_INTERVAL_MS, () => {
+	sweep().catch((e) => console.error("[expiry sweep]", e));
+});
+
+// A Machine that slept through a room's whole lifetime should not serve it for
+// even one request after it wakes.
+sweep().catch((e) => console.error("[expiry sweep]", e));
 
 // Columns the round engine owns outright. A client insert has them clamped to
 // these values; a client update has them dropped. The schema marks them
