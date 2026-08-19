@@ -565,6 +565,145 @@ h3.sub {
 	font-size: 24px;
 }
 
+/* ── whiteboard preview ───────────────────────────────────────────── */
+
+.demo-feature + .demo-feature {
+	margin-top: 20px;
+}
+
+.demo-board {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	min-height: 340px;
+	padding: 14px 16px 16px;
+}
+
+.demo-hud {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding-bottom: 10px;
+	border-bottom: 1px solid var(--line);
+}
+
+.demo-hud-word {
+	display: grid;
+	gap: 3px;
+}
+
+.demo-hud-word small {
+	color: var(--muted);
+	font-size: 8px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+
+.demo-hud-word strong {
+	color: var(--violet);
+	font-size: 15px;
+	font-weight: 500;
+	letter-spacing: 0.22em;
+}
+
+.demo-hud-timer {
+	color: var(--warn);
+	font-size: 15px;
+}
+
+/* The sketch itself. Flat strokes on the panel background read as a shared
+   canvas at any size, and survive being scaled down beside the copy. */
+.demo-board svg {
+	display: block;
+	width: 100%;
+	flex: 1;
+	min-height: 0;
+	max-height: 240px;
+	border-radius: 3px;
+	background: var(--bg-2);
+}
+
+.demo-ink path,
+.demo-ink circle {
+	fill: none;
+	stroke-width: 2.4;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.demo-ink .ink-1 {
+	stroke: var(--fg);
+}
+
+.demo-ink .ink-2 {
+	stroke: var(--warn);
+}
+
+.demo-ink .ink-3 {
+	stroke: var(--accent-2);
+}
+
+.demo-ink .ink-4 {
+	stroke: var(--violet);
+}
+
+.demo-ink .ink-5 {
+	stroke: var(--accent);
+	opacity: 0.55;
+}
+
+/* Two peers, mid-stroke. The pointer and its label share a colour so the ink
+   above and the cursor below read as the same person. */
+.demo-peer path {
+	fill: currentColor;
+}
+
+.demo-peer rect {
+	fill: currentColor;
+}
+
+.demo-peer text {
+	fill: var(--bg);
+	font-size: 9px;
+	font-weight: 600;
+	text-anchor: middle;
+}
+
+.demo-peer.peer-a {
+	color: var(--accent);
+}
+
+.demo-peer.peer-b {
+	color: var(--accent-2);
+}
+
+.demo-chat {
+	display: grid;
+	gap: 5px;
+}
+
+.demo-chat-line {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	padding: 6px 9px;
+	border-radius: 4px;
+	background: var(--bg-2);
+	color: var(--fg);
+	font-size: 10.5px;
+}
+
+.demo-chat-line em {
+	color: var(--muted);
+	font-style: normal;
+}
+
+.demo-chat-line.correct {
+	color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
 .demo-preview-footer {
 	justify-content: space-between;
 	margin-top: auto;
@@ -599,6 +738,11 @@ h3.sub {
 
 	.demo-player {
 		display: none;
+	}
+
+	.demo-board {
+		min-height: 315px;
+		padding: 12px;
 	}
 
 	.demo-preview-footer span {

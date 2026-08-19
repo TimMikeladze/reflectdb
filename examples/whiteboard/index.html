@@ -9,7 +9,50 @@
 			href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Space+Mono:wght@400;700&display=swap"
 			rel="stylesheet"
 		/>
+		<meta name="color-scheme" content="dark" />
 		<title>reflectdb · whiteboard + pictionary</title>
+		<meta
+			name="description"
+			content="A collaborative whiteboard synced with reflectdb, with a Pictionary mode on the same canvas. Draw together, watch peer cursors move, and guess in chat."
+		/>
+		<link rel="canonical" href="https://reflectdb-whiteboard.fly.dev/" />
+
+		<!-- Social card. The image is served from reflectdb.dev rather than this
+		     Machine: the demo auto-stops when idle, and a scraper that hits a cold
+		     start would give up on the image before it woke. Source and regeneration
+		     live in landing/og. -->
+		<meta property="og:type" content="website" />
+		<meta property="og:site_name" content="reflectdb" />
+		<meta property="og:locale" content="en_US" />
+		<meta property="og:url" content="https://reflectdb-whiteboard.fly.dev/" />
+		<meta property="og:title" content="Collaborative whiteboard — built with reflectdb" />
+		<meta
+			property="og:description"
+			content="A shared canvas with live peer cursors and chat. Every stroke is its own row, so nobody's line overwrites anyone else's."
+		/>
+		<meta property="og:image" content="https://reflectdb.dev/og-whiteboard.png" />
+		<meta property="og:image:secure_url" content="https://reflectdb.dev/og-whiteboard.png" />
+		<meta property="og:image:type" content="image/png" />
+		<meta property="og:image:width" content="2400" />
+		<meta property="og:image:height" content="1260" />
+		<meta
+			property="og:image:alt"
+			content="Collaborative whiteboard, built with reflectdb — a shared sketch with two named peer cursors on it, beside the demo's URL."
+		/>
+
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content="Collaborative whiteboard — built with reflectdb" />
+		<meta
+			name="twitter:description"
+			content="Draw together in real time, or take turns in Pictionary mode. Open it in two tabs to draw with yourself."
+		/>
+		<meta name="twitter:image" content="https://reflectdb.dev/og-whiteboard.png" />
+		<meta
+			name="twitter:image:alt"
+			content="A shared whiteboard sketch with two live peer cursors on it, beside the reflectdb wordmark."
+		/>
+
+		<meta name="theme-color" content="#0a0a0a" />
 		<style>
 			* {
 				box-sizing: border-box;

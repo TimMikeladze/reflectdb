@@ -8,8 +8,14 @@ import {
 	useEphemeral,
 } from "../../src/react/index.ts";
 
+// Everything is served by the same Bun process, so the API and the sync socket
+// live on whatever origin loaded the page: localhost in development, the Fly
+// hostname (over TLS) in production.
+const AUTH_URL = window.location.origin;
+const SYNC_URL = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/sync`;
+
 const authClient = createAuthClient({
-	baseURL: "http://localhost:3003",
+	baseURL: AUTH_URL,
 	plugins: [anonymousClient()],
 });
 
@@ -1182,7 +1188,7 @@ function AuthenticatedApp({
 	userId: string;
 }) {
 	return (
-		<SyncProvider url="ws://localhost:3003/sync" token={token} tables={["games"]}>
+		<SyncProvider url={SYNC_URL} token={token} tables={["games"]}>
 			<Shell userName={userName} userId={userId} />
 		</SyncProvider>
 	);

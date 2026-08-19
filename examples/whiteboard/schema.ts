@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 import { defineSyncQueries, t } from "../../src/core/schema.ts";
 import { createSqliteStorage } from "../../src/server/storage/sqlite.ts";
+import { DB_PATH } from "./config.ts";
 import type { ResolvedOp } from "../../src/server/types.ts";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 
@@ -134,8 +135,8 @@ export const queries = defineSyncQueries({
 
 // ── Database ────────────────────────────────────────────────────────────
 
-export function createDb() {
-	const sqlite = new Database("whiteboard.db");
+export function createDb(path = DB_PATH) {
+	const sqlite = new Database(path);
 	sqlite.run("PRAGMA journal_mode = WAL");
 	sqlite.run(`CREATE TABLE IF NOT EXISTS games (
 		id TEXT PRIMARY KEY,
@@ -319,15 +320,22 @@ export async function mutateGame(
 
 	const payload = { ...op.payload } as Record<string, unknown>;
 	delete payload.id; // op.rowId is authoritative; ignore any payload.id
+
 	if (op.type === "insert") {
 		payload.createdBy = ctx.auth.name;
 		payload.createdByUserId = ctx.auth.userId;
+		await db
+			.insert(games)
+			.values({ ...payload, id: op.rowId } as typeof games.$inferInsert)
+			.onConflictDoUpdate({ target: games.id, set: payload });
+		return;
 	}
 
-	await db
-		.insert(games)
-		.values({ ...payload, id: op.rowId } as typeof games.$inferInsert)
-		.onConflictDoUpdate({ target: games.id, set: payload });
+	// An update carries only what a client may change, so an upsert's INSERT
+	// arm would trip the NOT NULL columns that only the creating insert fills
+	// in — SQLite aborts on those rather than falling through to DO UPDATE.
+	// The row already exists on this path; write it in place.
+	await db.update(games).set(payload).where(eq(games.id, op.rowId));
 }
 
 export async function mutatePlayer(

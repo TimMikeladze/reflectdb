@@ -1,0 +1,28 @@
+app = "reflectdb-whiteboard"
+primary_region = "sjc"
+kill_signal = "SIGTERM"
+kill_timeout = 5
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+NODE_ENV = "production"
+PORT = "8080"
+# better-auth signs cookies for this origin and rejects every other one, so it
+# has to match the hostname browsers actually reach the demo on.
+WHITEBOARD_BASE_URL = "https://reflectdb-whiteboard.fly.dev"
+WHITEBOARD_DB_PATH = "/app/examples/whiteboard/whiteboard.db"
+WHITEBOARD_AUTH_DB_PATH = "/app/examples/whiteboard/auth.db"
+
+[http_service]
+internal_port = 8080
+force_https = true
+auto_stop_machines = "stop"
+auto_start_machines = true
+min_machines_running = 0
+
+[[vm]]
+size = "shared-cpu-1x"
+memory = "512mb"
+persist_rootfs = "restart"

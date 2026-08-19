@@ -4,6 +4,7 @@ import * as S from "./snippets.ts";
 
 const REPO = "https://github.com/TimMikeladze/reflectdb";
 const TETRIS_DEMO = "https://reflectdb-tetris.fly.dev/";
+const WHITEBOARD_DEMO = "https://reflectdb-whiteboard.fly.dev/";
 
 /**
  * Cycled through by the hero typewriter. Every one of these is something
@@ -191,7 +192,7 @@ export function renderApp(root: HTMLElement): void {
       <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu">menu</button>
       <nav id="site-nav">
         <a href="#how">how it works</a>
-        <a href="#demos">demo</a>
+        <a href="#demos">demos</a>
         <a href="#quickstart">quickstart</a>
         <a href="#concepts">concepts</a>
         <a href="#features">features</a>
@@ -213,7 +214,7 @@ export function renderApp(root: HTMLElement): void {
 
       <div class="cta">
         <a class="btn primary" href="#quickstart">quickstart →</a>
-        <a class="btn" href="#demos">live demo</a>
+        <a class="btn" href="#demos">live demos</a>
         <a class="btn" href="#how">how it works</a>
         <a class="btn" href="${REPO}">view on github</a>
       </div>
@@ -226,7 +227,7 @@ export function renderApp(root: HTMLElement): void {
 
     ${section(
 			"demos",
-			"live demo",
+			"live demos",
 			"See the sync engine move",
 			`
       <article class="demo-feature">
@@ -298,6 +299,68 @@ export function renderApp(root: HTMLElement): void {
             </div>
           </div>
           <div class="demo-preview-footer"><span>← → move · ↑ rotate · space drop</span><strong>play →</strong></div>
+        </a>
+      </article>
+
+      <article class="demo-feature">
+        <div class="demo-copy">
+          <div class="demo-status"><span></span>deployed on fly.io · wakes on demand</div>
+          <h4>Collaborative whiteboard</h4>
+          <p>
+            A shared canvas with live peer cursors and chat, plus a Pictionary mode where
+            the server picks the word, runs the round clock, and keeps the answer off every
+            guesser's wire.
+          </p>
+          <ul class="demo-facts">
+            <li>one row per stroke — no line overwrites another</li>
+            <li>only the drawer's tab receives the word</li>
+            <li>guest sign-in, no account needed</li>
+          </ul>
+          <div class="demo-actions">
+            <a class="btn primary" href="${WHITEBOARD_DEMO}">open the demo →</a>
+            <a class="btn" href="${REPO}/tree/main/examples/whiteboard">view source</a>
+          </div>
+          <p class="demo-hint">The first load may take a moment while the Fly Machine starts.</p>
+        </div>
+
+        <a class="demo-preview" href="${WHITEBOARD_DEMO}" aria-label="Open the collaborative whiteboard demo">
+          <div class="demo-chrome">
+            <span class="demo-chrome-dot"></span>
+            <span>reflectdb-whiteboard.fly.dev</span>
+            <span class="demo-synced">synced</span>
+          </div>
+          <div class="demo-board">
+            <div class="demo-hud">
+              <span class="demo-hud-word"><small>word · 5 letters</small><strong>_ _ _ _ _</strong></span>
+              <span class="demo-hud-timer">0:42</span>
+            </div>
+            <svg viewBox="0 0 340 210" role="img" aria-label="A shared whiteboard sketch with two peer cursors drawing at once">
+              <g class="demo-ink">
+                <path class="ink-1" d="M96 158V96l34-24 34 24v62" />
+                <path class="ink-1" d="M84 158h92" />
+                <path class="ink-2" d="M120 158v-30h20v30" />
+                <path class="ink-3" d="M104 104h16v16h-16zM140 104h16v16h-16z" />
+                <circle class="ink-4" cx="214" cy="74" r="18" />
+                <path class="ink-4" d="M214 48v-8M214 100v8M240 74h8M188 74h-8M231 57l6-6M197 91l-6 6M231 91l6 6M197 57l-6-6" />
+                <path class="ink-5" d="M46 172c22-9 44-9 66 0s44 9 66 0 44-9 66 0 40 8 50 3" />
+              </g>
+              <g class="demo-peer peer-a" transform="translate(163 88)">
+                <path d="M0 0l13 5-5 2-2 5z" />
+                <rect x="10" y="9" width="34" height="15" rx="4" />
+                <text x="27" y="20">mia</text>
+              </g>
+              <g class="demo-peer peer-b" transform="translate(238 132)">
+                <path d="M0 0l13 5-5 2-2 5z" />
+                <rect x="10" y="9" width="36" height="15" rx="4" />
+                <text x="28" y="20">sam</text>
+              </g>
+            </svg>
+            <div class="demo-chat">
+              <span class="demo-chat-line"><em>sam</em>is it a barn?</span>
+              <span class="demo-chat-line correct"><em>mia</em>🎉 guessed in 33s (+94)</span>
+            </div>
+          </div>
+          <div class="demo-preview-footer"><span>draw together · guess in chat</span><strong>open →</strong></div>
         </a>
       </article>
     `,
