@@ -188,7 +188,7 @@ const FEATURE_CARDS: Card[] = [
 export function renderApp(root: HTMLElement): void {
 	root.innerHTML = `
     <header>
-      <div class="brand">reflectdb</div>
+      <div class="brand">reflectdb<span class="beta-pill">beta</span></div>
       <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu">menu</button>
       <nav id="site-nav">
         <a href="#how">how it works</a>
@@ -198,6 +198,7 @@ export function renderApp(root: HTMLElement): void {
         <a href="#features">features</a>
         <a href="#transports">transports</a>
       </nav>
+      <button class="theme-btn" type="button" aria-label="Switch theme"></button>
       <a class="gh" href="${REPO}" aria-label="reflectdb on GitHub">
         <svg class="gh-icon" viewBox="0 0 16 16" width="17" height="17" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38l-.01-1.49c-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48l-.01 2.19c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"/></svg>
         <span class="gh-label">github</span>
@@ -223,6 +224,15 @@ export function renderApp(root: HTMLElement): void {
         <code><span class="prompt">$</span>bun add reflectdb</code>
         <button class="copy-btn" data-copy="bun add reflectdb">copy</button>
       </div>
+
+      <p class="beta-note" role="note">
+        <span class="beta-tag">beta</span>
+        <span>
+          reflectdb is pre-1.0 and under active development. The API can still change
+          between minor releases, and it has not been hardened for production traffic.
+          Pin an exact version, and <a href="${REPO}/issues">tell us what breaks</a>.
+        </span>
+      </p>
     </section>
 
     ${section(
@@ -590,7 +600,7 @@ export function renderApp(root: HTMLElement): void {
 		)}
 
     <footer>
-      <div>MIT · Bring your own stack</div>
+      <div>MIT · Beta, pre-1.0 · Bring your own stack</div>
       <div>
         <a href="${REPO}">github</a> ·
         <a href="${REPO}#api-reference">api reference</a> ·
@@ -606,6 +616,9 @@ export function renderApp(root: HTMLElement): void {
 	const header = root.querySelector<HTMLElement>("header");
 	const menuBtn = root.querySelector<HTMLButtonElement>(".menu-btn");
 	if (header && menuBtn) wireMenu(header, menuBtn);
+
+	const themeBtn = root.querySelector<HTMLButtonElement>(".theme-btn");
+	if (themeBtn) wireTheme(themeBtn);
 
 	root.querySelectorAll<HTMLButtonElement>(".copy-btn").forEach((btn) => {
 		btn.addEventListener("click", async () => {
@@ -623,6 +636,66 @@ export function renderApp(root: HTMLElement): void {
 				btn.textContent = "press ⌘C";
 			}
 		});
+	});
+}
+
+type Theme = "light" | "dark";
+
+/** Shared with the pre-paint script in index.html — change both together. */
+const THEME_KEY = "reflectdb-theme";
+
+/** Kept level with --bg in style.css so browser chrome matches the page. */
+const THEME_BG: Record<Theme, string> = { dark: "#0a0a0b", light: "#ffffff" };
+
+const SUN_ICON = `<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="3.1" fill="currentColor"/><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 .8v1.9M8 13.3v1.9M15.2 8h-1.9M2.7 8H.8M13.1 13.1l-1.35-1.35M4.25 4.25 2.9 2.9M2.9 13.1l1.35-1.35M11.75 4.25 13.1 2.9"/></g></svg>`;
+
+const MOON_ICON = `<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" focusable="false"><path fill="currentColor" d="M13.7 10.1A5.9 5.9 0 0 1 6.2 2.5a6.5 6.5 0 1 0 7.5 7.6Z"/></svg>`;
+
+/**
+ * Light/dark, in three states: no data-theme follows the OS, and an explicit
+ * pick writes data-theme plus localStorage so it survives a reload. The pinned
+ * value is re-applied before first paint by the inline script in index.html —
+ * by the time this runs the page is already the right colour, and all that is
+ * left is to label the button and keep it in step.
+ *
+ * The button shows where a click *goes*, not where you are: a sun while dark.
+ */
+function wireTheme(button: HTMLButtonElement): void {
+	const media = window.matchMedia("(prefers-color-scheme: dark)");
+	const root = document.documentElement;
+
+	const resolve = (): Theme => {
+		const pinned = root.dataset.theme;
+		if (pinned === "light" || pinned === "dark") return pinned;
+		return media.matches ? "dark" : "light";
+	};
+
+	const paint = (theme: Theme): void => {
+		const next = theme === "dark" ? "light" : "dark";
+		button.innerHTML = theme === "dark" ? SUN_ICON : MOON_ICON;
+		button.setAttribute("aria-label", `Switch to ${next} theme`);
+		button.setAttribute("title", `Switch to ${next} theme`);
+		const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+		if (meta) meta.content = THEME_BG[theme];
+	};
+
+	paint(resolve());
+
+	button.addEventListener("click", () => {
+		const next: Theme = resolve() === "dark" ? "light" : "dark";
+		root.dataset.theme = next;
+		try {
+			localStorage.setItem(THEME_KEY, next);
+		} catch {
+			// Private mode, or storage disabled. The pick still holds for this page.
+		}
+		paint(next);
+	});
+
+	// Nothing is pinned until the button is pressed, so until then the OS is in
+	// charge and the icon has to follow it.
+	media.addEventListener("change", () => {
+		if (!root.dataset.theme) paint(resolve());
 	});
 }
 

@@ -1,4 +1,61 @@
+/* Two palettes, one set of names: every rule below reads tokens only, so a
+   theme is a swap of this block and nothing else. Light is the base, dark is
+   layered on twice — once for the system preference, once for an explicit pick
+   — because a media query and an attribute selector cannot share a body.
+
+   Themes resolve in three states: no data-theme means follow the OS,
+   data-theme="dark" and data-theme="light" pin it. The pinned value is written
+   before first paint by the inline script in index.html. */
 :root {
+	color-scheme: light;
+
+	--bg: #ffffff;
+	--bg-2: #f6f6f8;
+	--bg-3: #edeef2;
+	--line: #e1e1e8;
+	--fg: #16161a;
+	--muted: #60606b;
+	--accent: #0b7a42;
+	--accent-2: #2563d8;
+	--warn: #9a5300;
+	--violet: #6537cc;
+
+	/* Text sitting on top of an --accent fill, and the fill's hover state. */
+	--on-accent: #ffffff;
+	--accent-hover: #0a6837;
+	/* A wash one step off the panel it sits on: ink on light, light on ink. */
+	--tint: rgba(0, 0, 0, 0.03);
+	--shadow: 0 12px 24px rgba(20, 20, 30, 0.14);
+
+	--mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+	--sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		color-scheme: dark;
+
+		--bg: #0a0a0b;
+		--bg-2: #111114;
+		--bg-3: #16161a;
+		--line: #1f1f24;
+		--fg: #e7e7ea;
+		--muted: #8a8a93;
+		--accent: #7df9a3;
+		--accent-2: #6ea8ff;
+		--warn: #ffb86b;
+		--violet: #c39bff;
+
+		--on-accent: #0a0a0b;
+		--accent-hover: #9affc1;
+		--tint: rgba(255, 255, 255, 0.02);
+		--shadow: 0 12px 24px rgba(0, 0, 0, 0.45);
+	}
+}
+
+:root[data-theme="dark"] {
+	color-scheme: dark;
+
 	--bg: #0a0a0b;
 	--bg-2: #111114;
 	--bg-3: #16161a;
@@ -9,8 +66,11 @@
 	--accent-2: #6ea8ff;
 	--warn: #ffb86b;
 	--violet: #c39bff;
-	--mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
-	--sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+
+	--on-accent: #0a0a0b;
+	--accent-hover: #9affc1;
+	--tint: rgba(255, 255, 255, 0.02);
+	--shadow: 0 12px 24px rgba(0, 0, 0, 0.45);
 }
 
 * {
@@ -72,10 +132,30 @@ header {
 }
 
 .brand {
+	display: flex;
+	align-items: center;
+	gap: 8px;
 	font-weight: 700;
 	font-size: 15px;
 	color: var(--fg);
 	flex: none;
+}
+
+/* Pre-1.0 marker. Shares its look with .beta-tag in the hero note so the two
+   read as the same label, not two unrelated badges. */
+.beta-pill,
+.beta-tag {
+	flex: none;
+	padding: 1px 6px;
+	border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+	border-radius: 3px;
+	background: color-mix(in srgb, var(--warn) 12%, transparent);
+	color: var(--warn);
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	line-height: 1.6;
 }
 nav {
 	display: flex;
@@ -122,6 +202,33 @@ header.open .menu-btn::after {
 	transform: translateY(1px) rotate(-135deg);
 }
 
+/* Icon-only, and outside the nav for the same reason .gh is: the theme switch
+   has to stay reachable at every width, not fold into the menu. */
+.theme-btn {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	background: var(--bg-2);
+	color: var(--muted);
+	cursor: pointer;
+	transition:
+		color 120ms,
+		border-color 120ms;
+}
+.theme-btn:hover {
+	color: var(--fg);
+	border-color: color-mix(in srgb, var(--line) 55%, var(--fg));
+}
+.theme-btn svg {
+	display: block;
+}
+
 /* Outside the nav, so the repo link never disappears into the menu. */
 .gh {
 	flex: none;
@@ -142,6 +249,11 @@ header.open .menu-btn::after {
 		gap: 12px;
 	}
 
+	.theme-btn {
+		width: 26px;
+		height: 26px;
+	}
+
 	.menu-btn {
 		display: inline-flex;
 	}
@@ -160,7 +272,7 @@ header.open .menu-btn::after {
 		font-size: 13.5px;
 		background: var(--bg);
 		border-bottom: 1px solid var(--line);
-		box-shadow: 0 12px 24px rgba(0, 0, 0, 0.45);
+		box-shadow: var(--shadow);
 	}
 	header.open nav {
 		display: flex;
@@ -240,12 +352,12 @@ h1 .accent {
 }
 .btn.primary {
 	background: var(--accent);
-	color: #0a0a0b;
+	color: var(--on-accent);
 	border-color: var(--accent);
 	font-weight: 600;
 }
 .btn.primary:hover {
-	background: #9affc1;
+	background: var(--accent-hover);
 }
 
 .install {
@@ -267,6 +379,32 @@ h1 .accent {
 	user-select: none;
 	margin-right: 6px;
 }
+/* Sits under the install line, so it is the last thing read before the page
+   moves on to the demos. */
+.beta-note {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	max-width: 62ch;
+	margin: 20px 0 0;
+	padding: 12px 14px;
+	border: 1px solid color-mix(in srgb, var(--warn) 26%, var(--line));
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--warn) 6%, var(--bg-2));
+	color: var(--muted);
+	font-size: 12.5px;
+	line-height: 1.65;
+}
+.beta-note a {
+	color: var(--warn);
+}
+.beta-note a:hover {
+	border-bottom-color: var(--warn);
+}
+.beta-tag {
+	margin-top: 2px;
+}
+
 .copy-btn {
 	font-family: var(--mono);
 	font-size: 12px;
@@ -432,7 +570,7 @@ h3.sub {
 	flex-direction: column;
 	color: var(--fg);
 	background:
-		radial-gradient(circle at 50% 45%, rgba(125, 249, 163, 0.08), transparent 45%), var(--bg);
+		radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 45%), var(--bg);
 	border-bottom: 0;
 }
 
@@ -448,7 +586,7 @@ h3.sub {
 	min-height: 36px;
 	padding: 0 14px;
 	color: var(--muted);
-	background: rgba(255, 255, 255, 0.018);
+	background: var(--tint);
 	font-size: 10.5px;
 }
 
@@ -501,12 +639,12 @@ h3.sub {
 
 .demo-well {
 	fill: var(--bg-2);
-	stroke: rgba(125, 249, 163, 0.32);
+	stroke: color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
 .demo-grid path {
 	fill: none;
-	stroke: rgba(255, 255, 255, 0.035);
+	stroke: color-mix(in srgb, var(--fg) 6%, transparent);
 	stroke-width: 0.6;
 }
 
@@ -534,7 +672,7 @@ h3.sub {
 
 .demo-ghost rect {
 	fill: none;
-	stroke: rgba(125, 249, 163, 0.35);
+	stroke: color-mix(in srgb, var(--accent) 40%, transparent);
 	stroke-dasharray: 2 2;
 }
 
@@ -772,7 +910,7 @@ h3.sub {
 	color: var(--muted);
 	padding: 8px 12px;
 	border-bottom: 1px solid var(--line);
-	background: rgba(255, 255, 255, 0.02);
+	background: var(--tint);
 }
 pre {
 	margin: 0;
@@ -933,7 +1071,7 @@ th {
 	text-transform: uppercase;
 	font-size: 11px;
 	letter-spacing: 0.08em;
-	background: rgba(255, 255, 255, 0.02);
+	background: var(--tint);
 }
 td {
 	color: var(--muted);
@@ -1008,13 +1146,13 @@ tr:last-child td {
 	stroke-width: 1;
 }
 .fig svg rect.nb-g {
-	stroke: rgba(125, 249, 163, 0.4);
+	stroke: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .fig svg rect.nb-b {
-	stroke: rgba(110, 168, 255, 0.4);
+	stroke: color-mix(in srgb, var(--accent-2) 45%, transparent);
 }
 .fig svg rect.nb-o {
-	stroke: rgba(255, 184, 107, 0.4);
+	stroke: color-mix(in srgb, var(--warn) 45%, transparent);
 }
 .fig svg circle.num {
 	fill: var(--bg-2);
