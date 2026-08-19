@@ -81,10 +81,10 @@ You bring your own types and your own database. reflectdb handles the protocol, 
 | Demo | Try it | What it demonstrates |
 |------|--------|----------------------|
 | **Infinite multiplayer Tetris** | [Play live](https://reflectdb-tetris.fly.dev/) · [source](./examples/tetris/) | Optimistic input prediction, server reconciliation and gravity, a live leaderboard, per-player progression, and Bun SQLite persistence in one perpetual game. Open two tabs to add another player. |
-| **Collaborative whiteboard** | [Run locally](./examples/whiteboard/) | Freeform drawing by default, optional Pictionary rounds, authenticated rooms, ephemeral cursors, chat, presence, and per-user query results. |
+| **Collaborative whiteboard** | [Draw live](https://reflectdb-whiteboard.fly.dev/) · [source](./examples/whiteboard/) | Freeform drawing by default, optional Pictionary rounds, authenticated rooms, ephemeral cursors, chat, presence, and per-user query results. Open two tabs to draw with yourself. |
 
-The Tetris demo runs on one auto-stopping Fly Machine with no volume, so its first
-load after an idle period may take a moment. Its data is intentionally ephemeral
+Both demos run on one auto-stopping Fly Machine with no volume, so the first load
+after an idle period may take a moment. Their data is intentionally ephemeral
 across deployments and Machine replacement.
 
 ## Why reflectdb
@@ -850,7 +850,9 @@ Each poll tick first probes the shared op log's head HLC; an idle tick costs one
 
 ## Whiteboard + Pictionary example
 
-A complete React + Bun + Drizzle app that exercises most of reflectdb in one place: [`examples/whiteboard/`](./examples/whiteboard/).
+A complete React + Bun + Drizzle app that exercises most of reflectdb in one
+place: [`examples/whiteboard/`](./examples/whiteboard/). It is deployed at
+[reflectdb-whiteboard.fly.dev](https://reflectdb-whiteboard.fly.dev/).
 
 ```bash
 cd examples/whiteboard
@@ -878,6 +880,11 @@ What it demonstrates:
 | `readonly` field enforcement to keep the engine state out of client hands | [`schema.ts`](./examples/whiteboard/schema.ts) |
 | Ephemeral cursors per game, scoped via `key: \`cursor:${gameId}\`` | [`app.tsx`](./examples/whiteboard/app.tsx) |
 | Per-table rate limiting (loose for strokes, tight for chat) | `server.rateLimit` in [`server.tsx`](./examples/whiteboard/server.tsx) |
+| One-Machine Fly.io deployment, prebuilt bundle and env-driven config | [`Dockerfile`](./examples/whiteboard/Dockerfile) / [`fly.toml`](./examples/whiteboard/fly.toml) / [`config.ts`](./examples/whiteboard/config.ts) |
+
+The included Fly.io config runs on one auto-stopping 512 MB Machine; deploying
+your own copy takes two commands, both covered in
+[`examples/whiteboard/README.md`](./examples/whiteboard/README.md).
 
 ## Infinite Tetris example
 
@@ -1567,6 +1574,7 @@ reference:
 |------|--------|------|---------|
 | `og/index.html` | `public/og.png` | 1200x630 at 2x | reflectdb.dev |
 | `og/tetris.html` | `public/og-tetris.png` | 1200x630 at 2x | the Tetris demo — served from reflectdb.dev, since the Fly Machine sleeps |
+| `og/whiteboard.html` | `public/og-whiteboard.png` | 1200x630 at 2x | the whiteboard demo, served from reflectdb.dev for the same reason |
 | `og/github.html` | `public/og-github.png` | 1280x640 at 2x | this repository's social preview, uploaded by hand under Settings → Social preview |
 
 Edit the HTML, not the PNGs. 1200x630 is the one ratio X, Facebook, LinkedIn,

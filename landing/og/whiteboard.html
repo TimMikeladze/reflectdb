@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<title>reflectdb whiteboard — social card</title>
+		<link rel="stylesheet" href="./card.css" />
+		<style>
+			/* Source for public/og-whiteboard.png — the card the Fly demo unfurls
+         with. The demo's own indigo, not the site green, so the preview and the
+         page a click later look like the same thing. */
+			html,
+			body,
+			.card {
+				width: 1200px;
+				height: 630px;
+			}
+			.card {
+				display: flex;
+				flex-direction: column;
+				padding: 54px 60px;
+				background:
+					radial-gradient(620px 320px at 2% -12%, rgba(129, 140, 248, 0.13), transparent 70%),
+					#0a0a0a;
+			}
+			:root {
+				--indigo: #818cf8;
+				--ink-blue: #60a5fa;
+				--ink-amber: #fbbf24;
+				--ink-green: #4ade80;
+			}
+			.card .brand .mark span {
+				background: var(--indigo);
+			}
+
+			.split {
+				flex: 1;
+				display: grid;
+				grid-template-columns: 1fr 400px;
+				gap: 48px;
+				align-items: center;
+				padding: 16px 0;
+			}
+			.left h1 {
+				font-size: 50px;
+				max-width: 15ch;
+			}
+			.left h1 .accent {
+				color: var(--indigo);
+			}
+			.left .sub {
+				font-size: 20px;
+				max-width: 36ch;
+			}
+			.eyebrow .dot,
+			.install .prompt {
+				color: var(--indigo);
+			}
+			.eyebrow .dot {
+				background: var(--indigo);
+			}
+
+			.foot {
+				display: flex;
+				align-items: center;
+				gap: 16px;
+			}
+			.foot .chips {
+				margin-left: auto;
+			}
+
+			/* The canvas, drawn as flat strokes. Big simple geometry survives being
+         shrunk to a 200px thumbnail, which a screenshot of the real app would
+         not. */
+			.canvas {
+				justify-self: end;
+				width: 400px;
+				border: 1px solid var(--line-2);
+				border-radius: 12px;
+				background: #0e0e10;
+				overflow: hidden;
+			}
+			.canvas .bar {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				padding: 12px 16px;
+				border-bottom: 1px solid var(--line);
+				font-size: 16px;
+				color: var(--muted);
+			}
+			.canvas .bar .word {
+				letter-spacing: 0.3em;
+				color: var(--indigo);
+			}
+			.canvas .bar .clock {
+				color: var(--warn);
+			}
+			.canvas svg {
+				display: block;
+				width: 400px;
+				height: 250px;
+			}
+			.canvas svg .ink {
+				fill: none;
+				stroke-width: 3;
+				stroke-linecap: round;
+				stroke-linejoin: round;
+			}
+			.canvas .guess {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				padding: 12px 16px;
+				border-top: 1px solid var(--line);
+				font-size: 16px;
+				color: var(--accent);
+				background: rgba(74, 222, 128, 0.08);
+			}
+			.canvas .guess b {
+				color: var(--muted);
+				font-weight: 400;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="card">
+			<div class="brand">
+				<span class="mark"><span></span></span>
+				reflectdb
+				<span class="url">reflectdb-whiteboard.fly.dev</span>
+			</div>
+
+			<div class="split">
+				<div class="left">
+					<div class="eyebrow"><span class="dot"></span>live demo · draw together</div>
+					<h1>Collaborative <span class="accent">whiteboard</span></h1>
+					<p class="sub">
+						A shared canvas with live peer cursors and chat. Every stroke is
+						<span class="k">its own row</span>, so nobody's line overwrites anyone else's.
+					</p>
+				</div>
+
+				<div class="canvas">
+					<div class="bar"><span class="word">_ _ _ _ _</span><span class="clock">0:42</span></div>
+					<svg viewBox="0 0 400 250">
+						<g class="ink">
+							<path d="M112 196V112l40-30 40 30v84" stroke="#ededed" />
+							<path d="M98 196h108" stroke="#ededed" />
+							<path d="M140 196v-38h24v38" stroke="#fbbf24" />
+							<path d="M120 122h18v18h-18zM166 122h18v18h-18z" stroke="#60a5fa" />
+							<circle cx="272" cy="94" r="22" stroke="#818cf8" />
+							<path
+								d="M272 62v-10M272 126v10M304 94h10M240 94h-10M294 72l7-7M250 116l-7 7M294 116l7 7M250 72l-7-7"
+								stroke="#818cf8"
+							/>
+							<path d="M52 216c26-11 52-11 78 0s52 11 78 0 52-11 78 0 48 9 60 3" stroke="#4ade80" />
+						</g>
+						<g transform="translate(196 108)">
+							<path d="M0 0l16 6-6 3-3 6z" fill="#4ade80" />
+							<rect x="12" y="11" width="42" height="19" rx="5" fill="#4ade80" />
+							<text
+								x="33"
+								y="25"
+								font-size="12"
+								font-weight="700"
+								fill="#0a0a0a"
+								text-anchor="middle"
+							>
+								mia
+							</text>
+						</g>
+						<g transform="translate(300 158)">
+							<path d="M0 0l16 6-6 3-3 6z" fill="#60a5fa" />
+							<rect x="12" y="11" width="46" height="19" rx="5" fill="#60a5fa" />
+							<text
+								x="35"
+								y="25"
+								font-size="12"
+								font-weight="700"
+								fill="#0a0a0a"
+								text-anchor="middle"
+							>
+								sam
+							</text>
+						</g>
+					</svg>
+					<div class="guess"><b>mia</b>guessed in 33s (+94)</div>
+				</div>
+			</div>
+
+			<div class="foot">
+				<div class="install"><span class="prompt">$</span>bun add reflectdb</div>
+				<div class="chips">
+					<span>live cursors</span><span>per-user results</span><span>server round clock</span>
+				</div>
+			</div>
+		</div>
+	</body>
+</html>

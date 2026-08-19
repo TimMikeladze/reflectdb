@@ -5,6 +5,7 @@ import { createBunWsServerTransport } from "../../src/transport/bun-ws.ts";
 import { createSyncServer } from "../../src/server/typed-server.ts";
 import type { ResolvedOp } from "../../src/server/types.ts";
 import { auth } from "./auth.ts";
+import { IS_PRODUCTION, PORT } from "./config.ts";
 import {
 	queries,
 	games,
@@ -21,22 +22,32 @@ import {
 } from "./schema.ts";
 import type { AppAuth, RoundWord } from "./schema.ts";
 
-const { db, storage } = createDb();
+const { db, sqlite, storage } = createDb();
 
 // ── Build client bundle ─────────────────────────────────────────────────
 
-const buildResult = await Bun.build({
-	entrypoints: [import.meta.dir + "/render.tsx"],
-	target: "browser",
-	minify: false,
-});
+// The Docker image bundles `app.js` ahead of time so the deployed Machine
+// never pays for a build; `bun dev` rebuilds on every request instead, so an
+// edit to app.tsx is one refresh away.
+async function buildClient(): Promise<string> {
+	if (IS_PRODUCTION) {
+		return Bun.file(import.meta.dir + "/app.js").text();
+	}
+	const result = await Bun.build({
+		entrypoints: [import.meta.dir + "/render.tsx"],
+		target: "browser",
+		minify: false,
+	});
+	return result.outputs[0]!.text();
+}
 
-const bundleJs = await buildResult.outputs[0]!.text();
-const rawHtml = await Bun.file(import.meta.dir + "/index.html").text();
-const appHtml = rawHtml.replace(
-	'<script type="module" src="./render.tsx"></script>',
-	'<script type="module" src="/app.js"></script>',
-);
+async function clientHtml(): Promise<string> {
+	const raw = await Bun.file(import.meta.dir + "/index.html").text();
+	return raw.replace(
+		'<script type="module" src="./render.tsx"></script>',
+		'<script type="module" src="/app.js"></script>',
+	);
+}
 
 // ── WS Transport ────────────────────────────────────────────────────────
 
@@ -113,6 +124,25 @@ async function postSystemMessage(gameId: string, text: string, kind = "system") 
 
 const PICK_DURATION_MS = 15_000;
 const ROUND_END_PAUSE_MS = 5_000;
+
+// reflectdb excludes a writer from the broadcast for its own op — that client
+// already applied it optimistically. A room's creator therefore holds the row
+// it sent, not the row the server stored, and the engine columns the insert
+// path fills in server-side (`state` above all, which the Pictionary HUD keys
+// off) would stay missing until that tab left the room and came back. One
+// deferred notify after the op settles makes the writer re-query and pick the
+// complete row up. Coalesced so a burst of creates costs one query.
+let gamesReconciliationQueued = false;
+function queueGamesReconciliation(): void {
+	if (gamesReconciliationQueued) return;
+	gamesReconciliationQueued = true;
+	setTimeout(() => {
+		gamesReconciliationQueued = false;
+		server.notifyChange("games").catch((error) => {
+			console.error("[games reconciliation]", error);
+		});
+	}, 0);
+}
 
 // Writes the secret row WITHOUT notifying. Callers should batch this with
 // any games-row update so subscribers re-run queries against fully consistent
@@ -329,6 +359,25 @@ if (import.meta.hot) {
 	import.meta.hot.dispose(() => clearInterval(tickInterval));
 }
 
+// Columns the round engine owns outright. A client insert has them clamped to
+// these values; a client update has them dropped. The schema marks them
+// `readonly` for the same reason, but a mutate is handed the op resolved
+// against the stored row, so they still arrive here — dropping them is what
+// keeps a hand-written op from seeding a round.
+const ENGINE_DEFAULTS: Record<string, string | number> = {
+	state: "waiting",
+	currentDrawerId: "",
+	currentDrawerName: "",
+	wordMask: "",
+	wordLength: 0,
+	roundEndsAt: 0,
+	currentRound: 0,
+	playerOrder: "[]",
+	scores: "{}",
+	correctGuessers: "[]",
+};
+const ENGINE_FIELDS = Object.keys(ENGINE_DEFAULTS);
+
 // ── Game-action mutate (kicks off rounds when client sets state="starting") ──
 
 async function mutateGameWithEngine(
@@ -362,20 +411,19 @@ async function mutateGameWithEngine(
 		incoming.roundDurationSec = dur;
 
 		// Clamp engine-controlled fields so a malicious client can't seed state.
-		incoming.state = "waiting";
-		incoming.currentDrawerId = "";
-		incoming.currentDrawerName = "";
-		incoming.wordMask = "";
-		incoming.wordLength = 0;
-		incoming.roundEndsAt = 0;
-		incoming.currentRound = 0;
-		incoming.playerOrder = "[]";
-		incoming.scores = "{}";
-		incoming.correctGuessers = "[]";
+		for (const field of ENGINE_FIELDS) incoming[field] = ENGINE_DEFAULTS[field];
 		await mutateGame(op, ctx, d);
-	} else if (Object.keys(incoming).length > 0) {
+		queueGamesReconciliation();
+	} else {
+		// An update's resolved payload carries the engine's own columns back to
+		// us alongside whatever the client changed. Only the engine writes
+		// those — and `createdAt` is stamped per op, so persisting it here
+		// would keep bumping a room to the top of the lobby. Drop both sets and
+		// keep only what a client may actually change.
+		for (const field of ENGINE_FIELDS) delete incoming[field];
+		delete incoming.createdAt;
 		// Only persist if there's something user-writable left after stripping the action.
-		await mutateGame(op, ctx, d);
+		if (Object.keys(incoming).length > 0) await mutateGame(op, ctx, d);
 	}
 
 	if (!requestedAction) return;
@@ -692,7 +740,7 @@ server.implement("roundWord", {
 // ── HTTP server ─────────────────────────────────────────────────────────
 
 const httpServer = serve({
-	port: 3003,
+	port: PORT,
 	websocket,
 	async fetch(req, srv) {
 		const url = new URL(req.url);
@@ -713,16 +761,34 @@ const httpServer = serve({
 		}
 
 		if (url.pathname === "/app.js") {
-			return new Response(bundleJs, {
-				headers: { "content-type": "application/javascript" },
+			return new Response(await buildClient(), {
+				headers: { "content-type": "application/javascript", "cache-control": "no-store" },
 			});
 		}
 
-		return new Response(appHtml, {
-			headers: { "content-type": "text/html" },
+		return new Response(await clientHtml(), {
+			headers: { "content-type": "text/html", "cache-control": "no-store" },
 		});
 	},
 });
 
 console.log(`Whiteboard running at http://localhost:${httpServer.port}`);
 
+// Fly stops an idle Machine with SIGTERM. Draining the WebSocket transport and
+// closing SQLite before exiting means the last strokes and chat lines are
+// checkpointed into the database file rather than left in the WAL.
+if (IS_PRODUCTION) {
+	let shuttingDown = false;
+	const shutdown = async (signal: string) => {
+		if (shuttingDown) return;
+		shuttingDown = true;
+		console.log(`Received ${signal}; closing whiteboard cleanly`);
+		clearInterval(tickInterval);
+		await httpServer.stop(true);
+		await server.close();
+		sqlite.close();
+		process.exit(0);
+	};
+	process.once("SIGTERM", () => void shutdown("SIGTERM"));
+	process.once("SIGINT", () => void shutdown("SIGINT"));
+}
