@@ -120,6 +120,7 @@ export function mountPresenceDemo(root: HTMLElement): void {
 	const stateEl = root.querySelector<HTMLElement>("[data-presence-state]");
 	const countEl = root.querySelector<HTMLElement>("[data-presence-count]");
 	const inviteEl = root.querySelector<HTMLElement>("[data-presence-invite]");
+	const rosterEl = root.querySelector<HTMLElement>("[data-presence-roster]");
 	if (!surface || !layer || !countEl) return;
 
 	// Once the card has given up, later callbacks must not paint over the
@@ -150,6 +151,11 @@ export function mountPresenceDemo(root: HTMLElement): void {
 
 	const me = { name: `${pick(ADJECTIVES)} ${pick(ANIMALS)}`, color: pick(COLORS) };
 	const nodes = new Map<string, HTMLElement>();
+	const chips = new Map<string, HTMLElement>();
+	// Declared here, not beside `renderRoster` below: `subscribe` runs its
+	// callback synchronously on registration, so the cursor subscription calls
+	// `renderRoster` before a `let` further down would have left its dead zone.
+	let herePeers: Peer<unknown>[] = [];
 
 	const presence = createPresenceClient({
 		url: PRESENCE_URL,
@@ -204,12 +210,53 @@ export function mountPresenceDemo(root: HTMLElement): void {
 		}
 
 		if (!offline) root.classList.toggle("has-peers", seen.size > 0);
+		renderRoster();
 	});
 
 	// ── Occupancy ─────────────────────────────────────────────────────────
 
+	/**
+	 * Everyone in the room, whether or not they have moved a pointer.
+	 *
+	 * Occupancy and cursors are different channels for a reason, and the gap
+	 * between them is the common case rather than an edge: most visitors read
+	 * the page without ever crossing this card, so they publish `here` and no
+	 * cursor. Counting them and drawing nothing produced a panel that claimed
+	 * "2 others here" over an empty grid, which reads as a demo that broke.
+	 *
+	 * The roster gives every occupant something on screen. A peer whose cursor
+	 * is live is dimmed here, because they are already visible on the grid and
+	 * showing them twice at full strength reads as double-counting.
+	 */
+	function renderRoster(): void {
+		if (offline || !rosterEl) return;
+
+		const wanted = new Map(herePeers.map((peer) => [peer.clientId, peer]));
+
+		for (const [clientId, chip] of chips) {
+			if (wanted.has(clientId)) continue;
+			chip.remove();
+			chips.delete(clientId);
+		}
+
+		for (const [clientId, peer] of wanted) {
+			let chip = chips.get(clientId);
+			if (!chip) {
+				chip = document.createElement("span");
+				chip.className = "presence-chip";
+				rosterEl.append(chip);
+				chips.set(clientId, chip);
+			}
+			const { name, color } = identityOf(peer as Peer<Cursor>);
+			chip.style.setProperty("--peer-color", color);
+			if (chip.textContent !== name) chip.textContent = name;
+			chip.classList.toggle("is-moving", nodes.has(clientId));
+		}
+	}
+
 	presence.subscribe(HERE_CHANNEL, (peers) => {
 		if (offline) return;
+		herePeers = peers;
 		const others = peers.length;
 		countEl.textContent =
 			others === 0 ? "you're the only one here" : `${others} other${others === 1 ? "" : "s"} here`;
@@ -220,6 +267,7 @@ export function mountPresenceDemo(root: HTMLElement): void {
 			inviteEl.textContent =
 				others === 0 ? "open this page in a second tab" : "move your cursor in here";
 		}
+		renderRoster();
 	});
 
 	presence.publish(HERE_CHANNEL, {}, HERE_TTL_MS);

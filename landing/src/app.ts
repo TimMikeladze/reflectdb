@@ -419,7 +419,7 @@ export function renderApp(root: HTMLElement): void {
               </div>
             </div>
           </div>
-          <div class="demo-preview-footer"><span>real visitors · real cursors</span><strong data-presence-count>presence is loading</strong></div>
+          <div class="demo-preview-footer"><span class="presence-tagline">real visitors · real cursors</span><span class="presence-roster" data-presence-roster></span><strong data-presence-count>presence is loading</strong></div>
         </div>
       </article>
     `,
