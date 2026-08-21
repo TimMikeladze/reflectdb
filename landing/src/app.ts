@@ -201,8 +201,9 @@ export function renderApp(root: HTMLElement): void {
       </span></div>
       <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu">menu</button>
       <nav id="site-nav">
-        <a href="#how">how it works</a>
+        <a href="#overview">overview</a>
         <a href="#demos">demos</a>
+        <a href="#how">how it works</a>
         <a href="#quickstart">quickstart</a>
         <a href="#concepts">concepts</a>
         <a href="#features">features</a>
@@ -218,31 +219,174 @@ export function renderApp(root: HTMLElement): void {
 
     <div class="page">
     <section id="hero">
-      <h1>real-time sync engine<br/>for <span class="accent" id="rotator" aria-hidden="true">${ROTATING[0]}</span><span class="period">.</span><span class="sr-only">${ROTATING.join(", ")}</span><span class="cursor"></span></h1>
-      <p class="tagline">
-        Keep a server-side database in sync with any number of browser clients —
-        offline-first, with optimistic local writes, automatic conflict resolution,
-        and end-to-end type inference. Bring your own types and your own database.
-      </p>
+      <div class="hero-copy">
+        <h1>real-time sync engine<br/>for <span class="accent" id="rotator" aria-hidden="true">${ROTATING[0]}</span><span class="period">.</span><span class="sr-only">${ROTATING.join(", ")}</span><span class="cursor"></span></h1>
+        <p class="tagline">
+          Keep a server-side database in sync with any number of browser clients —
+          offline-first, with optimistic local writes, automatic conflict resolution,
+          and end-to-end type inference. Bring your own types and your own database.
+        </p>
 
-      <div class="cta">
-        <a class="btn primary" href="#quickstart">quickstart →</a>
-        <a class="btn" href="#demos">live demos</a>
-        <a class="btn" href="#how">how it works</a>
-        <a class="btn" href="${REPO}">view on github</a>
+        <div class="cta">
+          <a class="btn primary" href="#overview">how it works →</a>
+          <a class="btn" href="#demos">live demos</a>
+          <a class="btn" href="#quickstart">quickstart</a>
+          <a class="btn" href="${REPO}">view on github</a>
+        </div>
+
+        <div class="install">
+          <code><span class="prompt">$</span>bun add reflectdb</code>
+          <button class="copy-btn" data-copy="bun add reflectdb">copy</button>
+        </div>
       </div>
 
-      <div class="install">
-        <code><span class="prompt">$</span>bun add reflectdb</code>
-        <button class="copy-btn" data-copy="bun add reflectdb">copy</button>
+      <!-- The same three demos the page ends up arguing for, at a glance. Each
+           is a static miniature rather than a running instance: the hero must
+           paint immediately, and the live one is a screenful away in #demos. -->
+      <div class="hero-minis">
+        <a class="hero-mini" href="#demos">
+          <svg viewBox="0 0 96 52" aria-hidden="true">
+            <g class="mini-grid">
+              <path d="M16 0V52M32 0V52M48 0V52M64 0V52M80 0V52" />
+              <path d="M0 13H96M0 26H96M0 39H96" />
+            </g>
+            <g class="mini-cursor a" transform="translate(24 14)">
+              <path d="M0 0l9 3.5-3.5 1.5-1.5 3.5z" /><rect x="7" y="6" width="20" height="8" rx="2" />
+            </g>
+            <g class="mini-cursor b" transform="translate(56 30)">
+              <path d="M0 0l9 3.5-3.5 1.5-1.5 3.5z" /><rect x="7" y="6" width="16" height="8" rx="2" />
+            </g>
+          </svg>
+          <span class="hero-mini-label"><strong>presence</strong><em>live on this page</em></span>
+        </a>
+
+        <a class="hero-mini" href="${TETRIS_DEMO}">
+          <svg viewBox="0 0 96 52" aria-hidden="true">
+            <rect class="mini-well" x="30" y="2" width="36" height="48" rx="1" />
+            <g class="mini-piece">
+              <rect x="42" y="10" width="6" height="6" /><rect x="48" y="10" width="6" height="6" />
+              <rect x="48" y="16" width="6" height="6" /><rect x="54" y="16" width="6" height="6" />
+            </g>
+            <g class="mini-stack">
+              <rect x="30" y="44" width="6" height="6" /><rect x="36" y="44" width="6" height="6" />
+              <rect x="48" y="44" width="6" height="6" /><rect x="54" y="44" width="6" height="6" />
+              <rect x="60" y="44" width="6" height="6" /><rect x="30" y="38" width="6" height="6" />
+              <rect x="42" y="38" width="6" height="6" /><rect x="60" y="38" width="6" height="6" />
+            </g>
+          </svg>
+          <span class="hero-mini-label"><strong>tetris</strong><em>multiplayer, one well each</em></span>
+        </a>
+
+        <a class="hero-mini" href="${WHITEBOARD_DEMO}">
+          <svg viewBox="0 0 96 52" aria-hidden="true">
+            <g class="mini-ink">
+              <path class="ink-a" d="M22 40V22l12-9 12 9v18" />
+              <path class="ink-a" d="M16 40h36" />
+              <circle class="ink-b" cx="70" cy="18" r="7" />
+              <path class="ink-c" d="M10 46c8-4 16-4 24 0s16 4 24 0 16-4 28 1" />
+            </g>
+            <g class="mini-cursor b" transform="translate(52 24)">
+              <path d="M0 0l9 3.5-3.5 1.5-1.5 3.5z" /><rect x="7" y="6" width="16" height="8" rx="2" />
+            </g>
+          </svg>
+          <span class="hero-mini-label"><strong>whiteboard</strong><em>draw together, guess in chat</em></span>
+        </a>
       </div>
     </section>
+
+    ${section(
+			"overview",
+			"the shape of it",
+			"Five pictures before any code",
+			`
+      <p class="note">
+        reflectdb keeps a server-side database and any number of browser copies of it in
+        agreement. Everything below is that sentence, drawn — the mechanism, the gate names
+        and the code all come after.
+      </p>
+
+      <h3 class="sub">Where everything sits</h3>
+      ${fig(
+				D.topology,
+				"Clients hold an optimistic copy. The server owns your database and the op log, and is the only thing that decides what a write means.",
+			)}
+
+      <h3 class="sub">A write reaches the screen before it reaches the server</h3>
+      ${fig(
+				D.latency,
+				"The local row changes at 0 ms. The round trip only confirms it — and if the server refuses, the row reverts to exactly what it was.",
+			)}
+
+      <h3 class="sub">Ordering across machines, trusting no clock</h3>
+      ${fig(
+				D.clock,
+				"A hybrid logical clock packs into a zero-padded string, so deciding which of two writes happened first costs one string comparison.",
+			)}
+
+      <h3 class="sub">Two people edit the same row at the same moment</h3>
+      ${fig(
+				D.policies,
+				"You answer that per table, in one word — or with a function when the answer is only yours to write.",
+			)}
+
+      <h3 class="sub">Offline is a very long round trip</h3>
+      ${fig(
+				D.offlineQueue,
+				"Writes keep landing in a queue that outlives the tab. Reconnecting replays it, and every op id is reserved exactly once.",
+			)}
+    `,
+		)}
 
     ${section(
 			"demos",
 			"live demos",
 			"See the sync engine move",
 			`
+      <article class="demo-feature">
+        <div class="demo-copy">
+          <div class="demo-status"><span></span>deployed on Vercel · running right now</div>
+          <h4>Presence, live on this page</h4>
+          <p>
+            The two demos below are somewhere else. This one is here: the panel is connected
+            to the public presence service, publishing your pointer and drawing everyone
+            else's. Open this page in a second tab and the two see each other.
+          </p>
+          <ul class="demo-facts">
+            <li>a snapshot on join — late arrivals see who is already there</li>
+            <li>server-sent events down, plain POSTs up — no sockets anywhere</li>
+            <li>state lives in Postgres, so a room spans every instance</li>
+          </ul>
+          <div class="demo-actions">
+            <a class="btn primary" href="${PRESENCE_SERVICE}">read the service →</a>
+            <a class="btn" href="${PRESENCE_SERVICE}/client.ts">view the client</a>
+          </div>
+          <p class="demo-hint">
+            Your cursor is shared with everyone reading this page, and stored nowhere.
+          </p>
+        </div>
+
+        <div class="demo-preview demo-live" id="presence-demo">
+          <div class="demo-chrome">
+            <span class="demo-chrome-dot"></span>
+            <span>reflectdb-presence.vercel.app</span>
+            <span class="demo-synced" data-presence-state>connecting</span>
+          </div>
+          <div class="presence-surface" data-presence-surface>
+            <p class="presence-invite" data-presence-invite>move your cursor in here</p>
+            <div class="presence-peers" data-presence-peers></div>
+            <div class="presence-ghosts" aria-hidden="true">
+              <div class="presence-cursor" style="--peer-color: #6ea8ff; left: 30%; top: 38%">
+                <svg viewBox="0 0 14 16"><path d="M0 0l13 5-5 2-2 5z" /></svg><span>clever lynx</span>
+              </div>
+              <div class="presence-cursor" style="--peer-color: #ffb86b; left: 62%; top: 64%">
+                <svg viewBox="0 0 14 16"><path d="M0 0l13 5-5 2-2 5z" /></svg><span>bold otter</span>
+              </div>
+            </div>
+          </div>
+          <div class="demo-preview-footer"><span class="presence-tagline">real visitors · real cursors</span><span class="presence-roster" data-presence-roster></span><strong data-presence-count>presence is loading</strong></div>
+        </div>
+      </article>
+
       <article class="demo-feature">
         <div class="demo-copy">
           <div class="demo-status"><span></span>deployed on fly.io · wakes on demand</div>
@@ -377,51 +521,6 @@ export function renderApp(root: HTMLElement): void {
           <div class="demo-preview-footer"><span>draw together · guess in chat</span><strong>open →</strong></div>
         </a>
       </article>
-
-      <article class="demo-feature">
-        <div class="demo-copy">
-          <div class="demo-status"><span></span>deployed on Vercel · running right now</div>
-          <h4>Presence, live on this page</h4>
-          <p>
-            The other two demos are somewhere else. This one is here: the panel is connected
-            to the public presence service, publishing your pointer and drawing everyone
-            else's. Open this page in a second tab and the two see each other.
-          </p>
-          <ul class="demo-facts">
-            <li>a snapshot on join — late arrivals see who is already there</li>
-            <li>server-sent events down, plain POSTs up — no sockets anywhere</li>
-            <li>state lives in Postgres, so a room spans every instance</li>
-          </ul>
-          <div class="demo-actions">
-            <a class="btn primary" href="${PRESENCE_SERVICE}">read the service →</a>
-            <a class="btn" href="${PRESENCE_SERVICE}/client.ts">view the client</a>
-          </div>
-          <p class="demo-hint">
-            Your cursor is shared with everyone reading this page, and stored nowhere.
-          </p>
-        </div>
-
-        <div class="demo-preview demo-live" id="presence-demo">
-          <div class="demo-chrome">
-            <span class="demo-chrome-dot"></span>
-            <span>reflectdb-presence.vercel.app</span>
-            <span class="demo-synced" data-presence-state>connecting</span>
-          </div>
-          <div class="presence-surface" data-presence-surface>
-            <p class="presence-invite" data-presence-invite>move your cursor in here</p>
-            <div class="presence-peers" data-presence-peers></div>
-            <div class="presence-ghosts" aria-hidden="true">
-              <div class="presence-cursor" style="--peer-color: #6ea8ff; left: 30%; top: 38%">
-                <svg viewBox="0 0 14 16"><path d="M0 0l13 5-5 2-2 5z" /></svg><span>clever lynx</span>
-              </div>
-              <div class="presence-cursor" style="--peer-color: #ffb86b; left: 62%; top: 64%">
-                <svg viewBox="0 0 14 16"><path d="M0 0l13 5-5 2-2 5z" /></svg><span>bold otter</span>
-              </div>
-            </div>
-          </div>
-          <div class="demo-preview-footer"><span class="presence-tagline">real visitors · real cursors</span><span class="presence-roster" data-presence-roster></span><strong data-presence-count>presence is loading</strong></div>
-        </div>
-      </article>
     `,
 		)}
 
@@ -430,8 +529,6 @@ export function renderApp(root: HTMLElement): void {
 			"how it works",
 			"One write, end to end",
 			`
-      ${fig(D.topology, "Clients hold an optimistic copy. The server owns the database and the op log.")}
-
       <p class="note">
         Every client keeps a local copy it may write to immediately. Every write becomes an
         <em>op</em> — a row-scoped insert, update or delete stamped with a hybrid logical clock.

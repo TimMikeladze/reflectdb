@@ -384,6 +384,151 @@ section {
 	margin-bottom: 72px;
 }
 
+/* ── hero ──────────────────────────────────────────────────────────
+   Copy on the left, the three demos as miniatures on the right. The minis
+   are static SVG rather than live embeds: the hero is the first paint, and
+   the running presence panel is one screen down in #demos where it can
+   afford a connection. */
+#hero {
+	display: grid;
+	grid-template-columns: minmax(0, 1.35fr) minmax(240px, 0.65fr);
+	gap: 40px;
+	align-items: start;
+}
+
+.hero-copy {
+	min-width: 0;
+}
+
+.hero-minis {
+	display: grid;
+	gap: 10px;
+	min-width: 0;
+	/* Optical, not structural: lines the tiles up with the headline's cap
+	   height rather than its line box. */
+	padding-top: 6px;
+}
+
+.hero-mini {
+	display: grid;
+	grid-template-columns: 96px minmax(0, 1fr);
+	align-items: center;
+	gap: 12px;
+	padding: 10px 12px;
+	border: 1px solid var(--line);
+	border-radius: 4px;
+	background: var(--bg-2);
+	color: var(--fg);
+	border-bottom: 1px solid var(--line);
+	transition:
+		border-color 0.15s ease,
+		background 0.15s ease;
+}
+
+.hero-mini:hover {
+	border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+	background: var(--bg-3);
+}
+
+.hero-mini svg {
+	display: block;
+	width: 96px;
+	height: 52px;
+	border-radius: 3px;
+	background: var(--bg);
+}
+
+.hero-mini-label {
+	display: grid;
+	gap: 2px;
+	min-width: 0;
+}
+
+.hero-mini-label strong {
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.hero-mini-label em {
+	color: var(--muted);
+	font-size: 10.5px;
+	font-style: normal;
+	/* Not `anywhere`: these are short phrases, and breaking inside one strands
+	   punctuation at the start of a line. */
+	overflow-wrap: break-word;
+}
+
+.mini-grid path {
+	fill: none;
+	stroke: var(--line);
+	stroke-width: 1;
+}
+
+.mini-cursor path {
+	fill: var(--accent-2);
+}
+.mini-cursor rect {
+	fill: color-mix(in srgb, var(--accent-2) 30%, transparent);
+}
+.mini-cursor.b path {
+	fill: var(--warn);
+}
+.mini-cursor.b rect {
+	fill: color-mix(in srgb, var(--warn) 30%, transparent);
+}
+
+.mini-well {
+	fill: var(--bg-2);
+	stroke: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+.mini-piece rect {
+	fill: var(--accent-2);
+}
+.mini-stack rect {
+	fill: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.mini-ink path,
+.mini-ink circle {
+	fill: none;
+	stroke-width: 1.6;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+.mini-ink .ink-a {
+	stroke: var(--fg);
+}
+.mini-ink .ink-b {
+	stroke: var(--warn);
+}
+.mini-ink .ink-c {
+	stroke: var(--accent);
+}
+
+/* One column below the point where 240px of tiles stops leaving the headline
+   a readable measure. The tiles stay — they are the page's best argument —
+   but they run as a row of three. */
+@media (max-width: 860px) {
+	#hero {
+		grid-template-columns: 1fr;
+		gap: 28px;
+	}
+
+	.hero-minis {
+		grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+		padding-top: 0;
+	}
+}
+
+/* Two tiles across leaves the label about 70px, which wraps every one of them
+   to four lines and strands the third on its own row. One column reads better
+   than three cramped ones. */
+@media (max-width: 640px) {
+	.hero-minis {
+		grid-template-columns: 1fr;
+	}
+}
+
 h1 {
 	font-size: 32px;
 	font-weight: 700;
@@ -535,7 +680,11 @@ h3.sub {
 
 .demo-feature {
 	display: grid;
-	grid-template-columns: minmax(0, 0.8fr) minmax(420px, 1.2fr);
+	/* The copy column sets the row height — the grid stretches the preview to
+	   match it, never the other way round — so it gets the wider share. Fewer
+	   wrapped lines is the only way to shorten these cards without cutting
+	   words out of them. */
+	grid-template-columns: minmax(0, 1fr) minmax(380px, 1fr);
 	gap: 1px;
 	background: var(--line);
 	border: 1px solid var(--line);
@@ -545,7 +694,7 @@ h3.sub {
 
 .demo-copy {
 	min-width: 0;
-	padding: 28px;
+	padding: 22px 24px;
 	background: var(--bg-2);
 }
 
@@ -553,7 +702,7 @@ h3.sub {
 	display: flex;
 	align-items: center;
 	gap: 7px;
-	margin-bottom: 16px;
+	margin-bottom: 12px;
 	color: var(--muted);
 	font-size: 10.5px;
 	letter-spacing: 0.07em;
@@ -576,16 +725,16 @@ h3.sub {
 }
 
 .demo-copy > p:not(.demo-hint) {
-	margin: 0 0 18px;
+	margin: 0 0 14px;
 	color: var(--muted);
 	font-size: 13px;
-	line-height: 1.65;
+	line-height: 1.6;
 	overflow-wrap: anywhere;
 }
 
 .demo-facts {
 	list-style: none;
-	margin: 0 0 22px;
+	margin: 0 0 16px;
 	padding: 0;
 	color: var(--fg);
 	font-size: 12px;
@@ -593,7 +742,7 @@ h3.sub {
 
 .demo-facts li {
 	position: relative;
-	padding: 5px 0 5px 18px;
+	padding: 3px 0 3px 18px;
 }
 
 .demo-facts li::before {
@@ -621,7 +770,12 @@ h3.sub {
 	flex-direction: column;
 	color: var(--fg);
 	background:
-		radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 45%), var(--bg);
+		radial-gradient(
+			circle at 50% 45%,
+			color-mix(in srgb, var(--accent) 9%, transparent),
+			transparent 45%
+		),
+		var(--bg);
 	border-bottom: 0;
 }
 
@@ -661,15 +815,15 @@ h3.sub {
 	display: grid;
 	grid-template-columns: minmax(120px, 1fr) minmax(200px, 1.25fr) minmax(72px, 0.65fr);
 	align-items: center;
-	min-height: 340px;
-	padding: 20px 22px;
+	min-height: 250px;
+	padding: 14px 18px;
 }
 
 .demo-player {
 	display: grid;
 	gap: 7px;
 	align-self: start;
-	padding-top: 34px;
+	padding-top: 18px;
 	font-size: 10px;
 	color: var(--muted);
 }
@@ -685,7 +839,7 @@ h3.sub {
 .demo-game svg {
 	display: block;
 	width: 100%;
-	max-height: 300px;
+	max-height: 218px;
 }
 
 .demo-well {
@@ -763,9 +917,9 @@ h3.sub {
 .demo-board {
 	display: flex;
 	flex-direction: column;
-	gap: 10px;
-	min-height: 340px;
-	padding: 14px 16px 16px;
+	gap: 8px;
+	min-height: 250px;
+	padding: 12px 14px 14px;
 }
 
 .demo-hud {
@@ -808,7 +962,7 @@ h3.sub {
 	width: 100%;
 	flex: 1;
 	min-height: 0;
-	max-height: 240px;
+	max-height: 168px;
 	border-radius: 3px;
 	background: var(--bg-2);
 }
@@ -917,7 +1071,7 @@ h3.sub {
 .presence-surface {
 	position: relative;
 	flex: 1;
-	min-height: 300px;
+	min-height: 250px;
 	overflow: hidden;
 	background-image:
 		linear-gradient(var(--line) 1px, transparent 1px),
@@ -1068,7 +1222,7 @@ h3.sub {
 	}
 
 	.demo-preview {
-		min-height: 380px;
+		min-height: 300px;
 	}
 }
 
@@ -1079,8 +1233,8 @@ h3.sub {
 
 	.demo-game {
 		grid-template-columns: minmax(180px, 1fr) 62px;
-		min-height: 315px;
-		padding: 14px 12px;
+		min-height: 250px;
+		padding: 12px;
 	}
 
 	.demo-player {
@@ -1088,7 +1242,7 @@ h3.sub {
 	}
 
 	.demo-board {
-		min-height: 315px;
+		min-height: 250px;
 		padding: 12px;
 	}
 
@@ -1327,6 +1481,9 @@ tr:last-child td {
 	font-size: 10.5px;
 	fill: var(--muted);
 }
+.fig svg text.big {
+	font-size: 22px;
+}
 .fig svg text.hd {
 	font-size: 10px;
 	fill: var(--muted);
@@ -1367,9 +1524,28 @@ tr:last-child td {
 	fill: var(--bg-2);
 	stroke: var(--line);
 }
+.fig svg circle.pt {
+	fill: var(--fg);
+}
+.fig svg circle.pt-g {
+	fill: var(--accent);
+}
+.fig svg circle.pt-b {
+	fill: var(--accent-2);
+}
+.fig svg circle.pt-o {
+	fill: var(--warn);
+}
+.fig svg circle.pt-m {
+	fill: var(--muted);
+}
 
 .fig svg .ln {
 	stroke-width: 1;
+}
+.fig svg .bar {
+	stroke-width: 2;
+	opacity: 1;
 }
 .fig svg .ln-fg {
 	stroke: var(--fg);
