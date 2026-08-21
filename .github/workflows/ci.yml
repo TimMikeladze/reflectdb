@@ -126,16 +126,23 @@ jobs:
         with:
           bun-version: latest
 
+      # The root install is what pins TypeScript. Running `bunx tsc` inside the
+      # service instead downloads whatever is newest, which is a different
+      # compiler from the one this repo builds with — the first run of this job
+      # failed on `baseUrl` being removed in a version nobody here uses.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
       # Its own lockfile, so this fails on drift the root install cannot see.
       - name: Install service dependencies
         run: bun install --frozen-lockfile
         working-directory: services/presence
 
-      # Against services/presence/tsconfig.json and its own node_modules, which
-      # is the resolution the platform actually performs.
+      # The pinned compiler, pointed at the service's tsconfig: imports then
+      # resolve out of services/presence/node_modules, which is the resolution
+      # the platform actually performs.
       - name: Type check
-        run: bunx tsc --noEmit
-        working-directory: services/presence
+        run: ./node_modules/.bin/tsc --noEmit -p services/presence/tsconfig.json
 
       # vercel.json paths, a default export per handler, declared dependencies.
       - name: Verify service
