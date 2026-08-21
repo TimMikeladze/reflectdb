@@ -107,3 +107,36 @@ jobs:
       - name: Build
         run: bun run build
         working-directory: landing
+
+  # services/presence deploys on its own, from its own package.json, and until
+  # this job existed nothing compiled it outside a deploy. The root type-check
+  # does cover services/**, but it resolves imports against the *root*
+  # node_modules — so a dependency the service forgot to declare passes there
+  # and fails on the platform, which installs from services/presence alone.
+  presence:
+    name: Presence service
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Its own lockfile, so this fails on drift the root install cannot see.
+      - name: Install service dependencies
+        run: bun install --frozen-lockfile
+        working-directory: services/presence
+
+      # Against services/presence/tsconfig.json and its own node_modules, which
+      # is the resolution the platform actually performs.
+      - name: Type check
+        run: bunx tsc --noEmit
+        working-directory: services/presence
+
+      # vercel.json paths, a default export per handler, declared dependencies.
+      - name: Verify service
+        run: bun scripts/verify-presence.ts

@@ -231,7 +231,8 @@
 		"type-check": "tsc --noEmit",
 		"verify:exports": "bun scripts/verify-exports.ts",
 		"verify:jsx": "bun scripts/verify-jsx.ts",
-		"verify:node": "bun scripts/verify-node-consumer.ts"
+		"verify:node": "bun scripts/verify-node-consumer.ts",
+		"verify:presence": "bun scripts/verify-presence.ts"
 	},
 	"devDependencies": {
 		"@types/bun": "^1.3.10",
