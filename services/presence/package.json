@@ -1,0 +1,16 @@
+{
+	"name": "reflectdb-presence",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "bun dev.ts",
+		"dev:memory": "PRESENCE_STORE=memory bun dev.ts"
+	},
+	"dependencies": {
+		"pg": "^8.13.1"
+	},
+	"devDependencies": {
+		"@types/pg": "^8.11.10"
+	}
+}

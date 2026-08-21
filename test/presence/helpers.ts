@@ -1,125 +1,128 @@
-import type { RedisLike, RedisSubscriberLike } from "../../src/server/ephemeral/redis.ts";
-import type { Connection } from "../../services/presence/service.ts";
+import {
+	createPresenceService,
+	type PresenceService,
+	type StreamSink,
+} from "../../services/presence/service.ts";
+import { createStaticRegistry, type SeedDefinition } from "../../services/presence/projects.ts";
+import { createMemoryStore, type PresenceStore } from "../../services/presence/store.ts";
 import type { ServerFrame } from "../../services/presence/protocol.ts";
 
 /**
- * In-memory stand-in for the handful of Redis commands the registry and bus
- * use. Keeps protocol tests hermetic — the Redis-backed store has its own
- * suite against a real server, and this one is about frames, not Lua.
+ * A sink that records every frame written to it.
+ *
+ * The service writes SSE text, so this parses the `data:` lines back into
+ * frames — a test should assert on what the client will see, not on the
+ * framing that carries it.
  */
-export function createFakeRedis(): {
-	client: RedisLike;
-	subscriberFor(): RedisSubscriberLike;
-	hashes: Map<string, Map<string, string>>;
-	strings: Map<string, string>;
-} {
-	const hashes = new Map<string, Map<string, string>>();
-	const strings = new Map<string, string>();
-	const channels = new Map<string, Set<(payload: string) => void>>();
-
-	const client: RedisLike = {
-		async call(command: string, ...args: (string | number)[]): Promise<unknown> {
-			const cmd = command.toUpperCase();
-			const a = args.map(String);
-			switch (cmd) {
-				case "HSETNX": {
-					const hash = hashes.get(a[0]!) ?? new Map<string, string>();
-					hashes.set(a[0]!, hash);
-					if (hash.has(a[1]!)) return 0;
-					hash.set(a[1]!, a[2]!);
-					return 1;
-				}
-				case "HSET": {
-					const hash = hashes.get(a[0]!) ?? new Map<string, string>();
-					hashes.set(a[0]!, hash);
-					const isNew = hash.has(a[1]!) ? 0 : 1;
-					hash.set(a[1]!, a[2]!);
-					return isNew;
-				}
-				case "HGETALL": {
-					const hash = hashes.get(a[0]!);
-					if (!hash) return [];
-					return [...hash.entries()].flat();
-				}
-				case "GET":
-					return strings.get(a[0]!) ?? null;
-				case "SET":
-					strings.set(a[0]!, a[1]!);
-					return "OK";
-				case "INCR": {
-					const next = Number(strings.get(a[0]!) ?? "0") + 1;
-					strings.set(a[0]!, String(next));
-					return next;
-				}
-				case "DECR": {
-					const next = Number(strings.get(a[0]!) ?? "0") - 1;
-					strings.set(a[0]!, String(next));
-					return next;
-				}
-				case "EXPIRE":
-					return 1;
-				case "DEL":
-					strings.delete(a[0]!);
-					hashes.delete(a[0]!);
-					return 1;
-				case "PUBLISH": {
-					const subscribers = channels.get(a[0]!);
-					if (subscribers) {
-						// Deliver asynchronously, like a real bus, so tests catch
-						// anything that depends on synchronous delivery.
-						for (const listener of subscribers) {
-							queueMicrotask(() => listener(a[1]!));
-						}
-					}
-					return subscribers?.size ?? 0;
-				}
-				default:
-					throw new Error(`fake redis: unsupported command ${cmd}`);
-			}
-		},
-	};
-
-	return {
-		client,
-		hashes,
-		strings,
-		subscriberFor(): RedisSubscriberLike {
-			return {
-				subscribe(channel: string, onMessage: (payload: string) => void) {
-					const set = channels.get(channel) ?? new Set<(payload: string) => void>();
-					set.add(onMessage);
-					channels.set(channel, set);
-				},
-			};
-		},
-	};
-}
-
-/** A connection that records every frame written to it. */
-export function createFakeConnection(): Connection & {
+export function createFakeSink(): StreamSink & {
 	frames: ServerFrame[];
+	chunks: string[];
 	closed: boolean;
-	framesOfType<T extends ServerFrame["type"]>(
-		type: T,
-	): Extract<ServerFrame, { type: T }>[];
+	framesOfType<T extends ServerFrame["type"]>(type: T): Extract<ServerFrame, { type: T }>[];
+	last<T extends ServerFrame["type"]>(type: T): Extract<ServerFrame, { type: T }> | undefined;
 } {
 	const frames: ServerFrame[] = [];
-	const connection = {
+	const chunks: string[] = [];
+	const sink = {
 		frames,
+		chunks,
 		closed: false,
-		send(payload: string) {
-			frames.push(JSON.parse(payload) as ServerFrame);
+		write(chunk: string) {
+			chunks.push(chunk);
+			for (const line of chunk.split("\n")) {
+				if (!line.startsWith("data: ")) continue;
+				frames.push(JSON.parse(line.slice(6)) as ServerFrame);
+			}
 		},
 		close() {
-			connection.closed = true;
+			sink.closed = true;
 		},
 		framesOfType<T extends ServerFrame["type"]>(type: T) {
-			return frames.filter((f) => f.type === type) as Extract<ServerFrame, { type: T }>[];
+			return frames.filter((frame) => frame.type === type) as Extract<ServerFrame, { type: T }>[];
+		},
+		last<T extends ServerFrame["type"]>(type: T) {
+			const matching = sink.framesOfType(type);
+			return matching[matching.length - 1];
 		},
 	};
-	return connection;
+	return sink;
 }
 
-export async function settle(ms = 5): Promise<void> {
-	await new Promise((r) => setTimeout(r, ms));
+export interface Harness {
+	service: PresenceService;
+	store: PresenceStore;
+}
+
+export interface HarnessOptions {
+	seed?: Record<string, SeedDefinition>;
+	store?: PresenceStore;
+	streamMs?: number;
+	fastPollMs?: number;
+	idlePollMs?: number;
+	now?: () => number;
+}
+
+/**
+ * Default seed.
+ *
+ * `maxMessagesPerSecond` is deliberately high: the store enforces the limit as
+ * a minimum gap between writes, so at the production default of 30/s two
+ * publishes in the same tick of a test would be refused for reasons the test
+ * is not about. The rate limit has its own project below.
+ */
+export const SEED: Record<string, SeedDefinition> = {
+	"key-live": { projectId: "proj-1", maxMessagesPerSecond: 1000 },
+	"key-other": { projectId: "proj-2", maxMessagesPerSecond: 1000 },
+	"key-slow": { projectId: "proj-slow", maxMessagesPerSecond: 1 },
+	"key-tiny": {
+		projectId: "proj-tiny",
+		maxConnections: 1,
+		maxEntriesPerRoom: 1,
+		maxMessagesPerSecond: 1000,
+	},
+};
+
+export function setup(options: HarnessOptions = {}): Harness {
+	const store = options.store ?? createMemoryStore(options.now);
+	const seed = options.seed ?? SEED;
+	const service = createPresenceService({
+		store,
+		registry: createStaticRegistry(seed, store),
+		// Short enough that a test does not wait on a poll, long enough that
+		// several polls still happen inside one `settle`.
+		fastPollMs: options.fastPollMs ?? 5,
+		idlePollMs: options.idlePollMs ?? 5,
+		streamMs: options.streamMs ?? 60_000,
+		keepaliveMs: 60_000,
+		now: options.now,
+	});
+	return { service, store };
+}
+
+/** Open a stream and wait for its opening frames. */
+export async function open(
+	harness: Harness,
+	apiKey: string,
+	room: string,
+	clientId: string,
+): Promise<ReturnType<typeof createFakeSink>> {
+	const sink = createFakeSink();
+	await harness.service.openStream({ apiKey, room, clientId }, sink);
+	return sink;
+}
+
+export function publish(
+	harness: Harness,
+	apiKey: string,
+	room: string,
+	clientId: string,
+	channel: string,
+	data: Record<string, unknown>,
+	extra: { identity?: Record<string, unknown>; ttlMs?: number } = {},
+) {
+	return harness.service.publish({ apiKey, room, clientId, channel, data, ...extra });
+}
+
+export async function settle(ms = 25): Promise<void> {
+	await new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -13,9 +13,9 @@
 
 import { createPresenceClient, type Peer } from "./presence/client.ts";
 
-/** Overridable so `bun services/presence/server.ts` can back the dev page. */
+/** Overridable so `bun services/presence/dev.ts` can back the dev page. */
 const PRESENCE_URL =
-	import.meta.env.VITE_PRESENCE_URL ?? "wss://reflectdb-presence.fly.dev/connect";
+	import.meta.env.VITE_PRESENCE_URL ?? "https://reflectdb-presence.vercel.app/api/presence";
 
 /** One room for the whole page — every visitor lands in the same one. */
 const ROOM = "landing";
@@ -30,36 +30,58 @@ const CURSOR_CHANNEL = "cursor";
 const HERE_CHANNEL = "here";
 
 /**
- * The service allows 30 published frames per second per connection. A
- * `pointermove` listener fires far above that, so coalesce to one publish per
- * frame and never faster than this.
+ * The service accepts 30 writes per second per channel, and refuses anything
+ * closer together. A `pointermove` listener fires far above that, so coalesce
+ * to one publish per frame and never faster than this — comfortably outside
+ * the 33ms the server would reject.
  */
 const PUBLISH_INTERVAL_MS = 50;
 
 /**
  * Long enough that a peer who stops moving stays visible, short enough that a
- * cursor left by a hard-closed tab expires rather than haunting the room. The
- * server clears entries on disconnect anyway; this only covers the case where
- * it never sees the close.
+ * cursor left by a hard-closed tab expires rather than haunting the room.
+ *
+ * This carries more weight than it did over a socket. There is no connection
+ * whose close the server can notice, so a leaving tab announces itself with a
+ * beacon and the TTL is what covers every time that beacon does not get out.
  */
 const TTL_MS = 20_000;
 
 /**
  * Occupancy outlives pointer movement, so `here` gets a longer TTL and a
- * heartbeat. The heartbeat doubles as socket traffic: the service closes an
- * idle connection after 120s, and a silent reader would otherwise bounce
- * through a reconnect every two minutes.
+ * heartbeat. A reader who never moves their pointer publishes nothing else, so
+ * without the heartbeat they would expire out of their own room.
  */
 const HERE_TTL_MS = 90_000;
 const HEARTBEAT_MS = 30_000;
 
 const ADJECTIVES = [
-	"swift", "clever", "brave", "sleepy", "sneaky", "jolly",
-	"wild", "calm", "lucky", "grumpy", "fuzzy", "bold",
+	"swift",
+	"clever",
+	"brave",
+	"sleepy",
+	"sneaky",
+	"jolly",
+	"wild",
+	"calm",
+	"lucky",
+	"grumpy",
+	"fuzzy",
+	"bold",
 ];
 const ANIMALS = [
-	"otter", "falcon", "badger", "panda", "heron", "lynx",
-	"walrus", "gecko", "marmot", "puffin", "weasel", "moose",
+	"otter",
+	"falcon",
+	"badger",
+	"panda",
+	"heron",
+	"lynx",
+	"walrus",
+	"gecko",
+	"marmot",
+	"puffin",
+	"weasel",
+	"moose",
 ];
 
 /** Reads as distinct at a glance in both themes, unlike the token palette. */
@@ -190,9 +212,7 @@ export function mountPresenceDemo(root: HTMLElement): void {
 		if (offline) return;
 		const others = peers.length;
 		countEl.textContent =
-			others === 0
-				? "you're the only one here"
-				: `${others} other${others === 1 ? "" : "s"} here`;
+			others === 0 ? "you're the only one here" : `${others} other${others === 1 ? "" : "s"} here`;
 		// Most visitors arrive at an empty room. Saying so and handing them the
 		// one action that proves the point beats an empty grid, which reads as a
 		// demo that failed to load.
@@ -249,11 +269,10 @@ export function mountPresenceDemo(root: HTMLElement): void {
 	surface.addEventListener("pointerleave", stopPublishing);
 	surface.addEventListener("pointercancel", stopPublishing);
 
-	// Nothing closes the client explicitly. Unloading the page closes the
-	// socket, and dropping the entry on disconnect is the service's job — it is
-	// the behaviour this card advertises. Closing on `pagehide` looked tidier
-	// but is wrong: Chrome fires it on entry to the back/forward cache, so a
-	// restored page came back with a client that had permanently given up.
+	// Nothing closes the client explicitly, and nothing here handles the page
+	// unloading: the client sends its own leave beacon on `pagehide` and puts
+	// its state back on `pageshow`, because every consumer needs that and none
+	// of it is specific to this card.
 	document.addEventListener("visibilitychange", () => {
 		if (document.hidden) {
 			// Your cursor should not sit on the board while you read another tab.

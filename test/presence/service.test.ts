@@ -1,405 +1,253 @@
-import { describe, expect, test } from "bun:test";
-import { createPresenceService } from "../../services/presence/service.ts";
-import { createMemoryEphemeral } from "../../src/server/ephemeral/memory.ts";
-import type { EphemeralAdapter } from "../../src/server/ephemeral/types.ts";
+import { afterEach, describe, expect, test } from "bun:test";
 import { PRESENCE_PROTOCOL_VERSION } from "../../services/presence/protocol.ts";
-import { createFakeConnection, createFakeRedis, settle } from "./helpers.ts";
+import { MAX_PAYLOAD_BYTES } from "../../services/presence/protocol.ts";
+import { createFakeSink, open, publish, settle, setup, type Harness } from "./helpers.ts";
 
-const SEED = {
-	"key-live": { projectId: "proj-1" },
-	"key-tiny": { projectId: "proj-2", maxConnections: 1, maxMessagesPerSecond: 2 },
-};
+const open_harnesses: Harness[] = [];
 
-async function setup(
-	options: { store?: EphemeralAdapter; serverId?: string; redis?: ReturnType<typeof createFakeRedis> } = {},
-) {
-	const redis = options.redis ?? createFakeRedis();
-	const service = createPresenceService({
-		client: redis.client,
-		subscriber: redis.subscriberFor(),
-		store: options.store ?? createMemoryEphemeral(),
-		serverId: options.serverId ?? "server-a",
-		seed: SEED,
-		sweepIntervalMs: 0,
-	});
-	await service.start();
-	return { service, redis };
+function harness(...args: Parameters<typeof setup>): Harness {
+	const created = setup(...args);
+	open_harnesses.push(created);
+	return created;
 }
 
-function hello(apiKey: string, room: string, identity?: Record<string, unknown>): string {
-	return JSON.stringify({
-		type: "hello",
-		protocolVersion: PRESENCE_PROTOCOL_VERSION,
-		apiKey,
-		room,
-		identity,
-	});
-}
-
-async function connect(
-	service: Awaited<ReturnType<typeof setup>>["service"],
-	apiKey: string,
-	room: string,
-	identity?: Record<string, unknown>,
-) {
-	const connection = createFakeConnection();
-	const clientId = crypto.randomUUID();
-	service.open(clientId, connection);
-	await service.handle(clientId, hello(apiKey, room, identity));
-	return { connection, clientId };
-}
+afterEach(async () => {
+	// Every harness holds real interval timers for its rooms; leaving them
+	// running leaks polls into the next test's assertions.
+	for (const created of open_harnesses.splice(0)) await created.service.shutdown();
+});
 
 describe("presence service", () => {
-	test("hello returns welcome and a snapshot", async () => {
-		const { service } = await setup();
-		const { connection } = await connect(service, "key-live", "board-1");
+	test("a stream opens with welcome and a snapshot", async () => {
+		const h = harness();
+		const sink = await open(h, "key-live", "board-1", "c1");
 
-		const welcome = connection.framesOfType("welcome")[0];
+		const welcome = sink.last("welcome");
 		expect(welcome).toBeDefined();
 		expect(welcome!.protocolVersion).toBe(PRESENCE_PROTOCOL_VERSION);
+		expect(welcome!.clientId).toBe("c1");
 		expect(welcome!.room).toBe("board-1");
-
-		// An empty room still gets a snapshot — the client should not have to
-		// distinguish "no peers yet" from "snapshot never arrived".
-		const snapshot = connection.framesOfType("snapshot")[0];
-		expect(snapshot).toBeDefined();
-		expect(snapshot!.peers).toEqual([]);
-
-		await service.shutdown();
+		expect(sink.last("snapshot")!.peers).toEqual([]);
+		expect(sink.closed).toBe(false);
 	});
 
-	test("an unknown API key is rejected and the socket closed", async () => {
-		const { service } = await setup();
-		const { connection } = await connect(service, "key-bogus", "board-1");
+	test("an unknown API key is refused as a frame, not a status", async () => {
+		const h = harness();
+		const sink = await open(h, "nope", "board-1", "c1");
 
-		const error = connection.framesOfType("error")[0];
-		expect(error?.code).toBe("unauthorized");
-		expect(error?.fatal).toBe(true);
-		expect(connection.closed).toBe(true);
-
-		await service.shutdown();
-	});
-
-	test("a protocol version mismatch is refused rather than guessed at", async () => {
-		const { service } = await setup();
-		const connection = createFakeConnection();
-		const clientId = crypto.randomUUID();
-		service.open(clientId, connection);
-		await service.handle(
-			clientId,
-			JSON.stringify({
-				type: "hello",
-				protocolVersion: PRESENCE_PROTOCOL_VERSION + 1,
-				apiKey: "key-live",
-				room: "board-1",
-			}),
-		);
-
-		expect(connection.framesOfType("error")[0]?.code).toBe("protocol_version");
-		expect(connection.closed).toBe(true);
-
-		await service.shutdown();
-	});
-
-	test("a frame before hello is refused", async () => {
-		const { service } = await setup();
-		const connection = createFakeConnection();
-		const clientId = crypto.randomUUID();
-		service.open(clientId, connection);
-		await service.handle(clientId, JSON.stringify({ type: "publish", channel: "c", data: {} }));
-
-		expect(connection.framesOfType("error")[0]?.code).toBe("unauthorized");
-		expect(connection.closed).toBe(true);
-
-		await service.shutdown();
-	});
-
-	test("a publish sent before hello resolves is not mistaken for a bad first frame", async () => {
-		// Every existing test awaits `hello` before sending anything else, which
-		// is not how a socket behaves: a client that publishes immediately after
-		// connecting puts both frames on the wire in one go. `hello` resolves an
-		// API key and acquires a connection slot before it marks the session
-		// joined, so without per-connection ordering the publish arrives mid-flight
-		// and gets refused as "first frame must be hello" — fatally. The bundled
-		// client hits this on every reconnect, replaying its outbox.
-		const { service } = await setup();
-		const connection = createFakeConnection();
-		const clientId = crypto.randomUUID();
-		service.open(clientId, connection);
-
-		const both = Promise.all([
-			service.handle(clientId, hello("key-live", "board-1")),
-			service.handle(
-				clientId,
-				JSON.stringify({ type: "publish", channel: "cursor", data: { x: 1, y: 2 } }),
-			),
-		]);
-		await both;
-		await settle();
-
-		expect(connection.framesOfType("error")).toEqual([]);
-		expect(connection.closed).toBe(false);
-		expect(connection.framesOfType("welcome").length).toBe(1);
-
-		// The publish landed rather than being dropped on the floor: a peer
-		// joining now sees it in the snapshot.
-		const late = await connect(service, "key-live", "board-1");
-		expect(late.connection.framesOfType("snapshot")[0]?.peers).toMatchObject([
-			{ clientId, channel: "cursor", data: { x: 1, y: 2 } },
-		]);
-
-		await service.shutdown();
-	});
-
-	test("publish reaches peers and never echoes to the sender", async () => {
-		const { service } = await setup();
-		const alice = await connect(service, "key-live", "board-1", { name: "Alice" });
-		const bob = await connect(service, "key-live", "board-1", { name: "Bob" });
-		bob.connection.frames.length = 0;
-
-		await service.handle(
-			alice.clientId,
-			JSON.stringify({ type: "publish", channel: "cursor", data: { x: 4, y: 9 } }),
-		);
-
-		const received = bob.connection.framesOfType("presence");
-		expect(received.length).toBe(1);
-		expect(received[0]).toMatchObject({
-			clientId: alice.clientId,
-			channel: "cursor",
-			data: { x: 4, y: 9 },
-			identity: { name: "Alice" },
-		});
-		expect(alice.connection.framesOfType("presence").length).toBe(0);
-
-		await service.shutdown();
-	});
-
-	test("a room in another project never receives the frame", async () => {
-		const { service } = await setup();
-		const inside = await connect(service, "key-live", "board-1");
-		const outside = await connect(service, "key-tiny", "board-1");
-		outside.connection.frames.length = 0;
-
-		await service.handle(
-			inside.clientId,
-			JSON.stringify({ type: "publish", channel: "cursor", data: { x: 1 } }),
-		);
-
-		// Same room name, different project — namespacing must keep them apart.
-		expect(outside.connection.framesOfType("presence").length).toBe(0);
-
-		await service.shutdown();
+		// An `EventSource` cannot read a status code, so the refusal has to
+		// arrive on the stream or the client retries forever without knowing why.
+		const error = sink.last("error");
+		expect(error).toBeDefined();
+		expect(error!.code).toBe("unauthorized");
+		expect(error!.fatal).toBe(true);
+		expect(sink.closed).toBe(true);
+		expect(sink.framesOfType("welcome")).toHaveLength(0);
 	});
 
 	test("a joiner sees peers who arrived before it", async () => {
-		const { service } = await setup();
-		const alice = await connect(service, "key-live", "board-1", { name: "Alice" });
-		await service.handle(
-			alice.clientId,
-			JSON.stringify({ type: "publish", channel: "cursor", data: { x: 7 } }),
-		);
-
-		const bob = await connect(service, "key-live", "board-1");
-		const snapshot = bob.connection.framesOfType("snapshot")[0];
-		// A snapshot peer must be shaped exactly like a live presence frame —
-		// the identity split out, no internal storage key leaking through.
-		expect(snapshot!.peers).toEqual([
+		const h = harness();
+		await publish(
+			h,
+			"key-live",
+			"board-1",
+			"early",
+			"cursor",
+			{ x: 1 },
 			{
-				clientId: alice.clientId,
-				channel: "cursor",
-				data: { x: 7 },
-				identity: { name: "Alice" },
+				identity: { name: "Ada" },
 			},
+		);
+
+		const sink = await open(h, "key-live", "board-1", "late");
+		const snapshot = sink.last("snapshot")!;
+		expect(snapshot.peers).toHaveLength(1);
+		expect(snapshot.peers[0]).toMatchObject({
+			clientId: "early",
+			channel: "cursor",
+			data: { x: 1 },
+			identity: { name: "Ada" },
+		});
+	});
+
+	test("a snapshot never contains the joiner's own state", async () => {
+		const h = harness();
+		await publish(h, "key-live", "board-1", "self", "cursor", { x: 1 });
+
+		const sink = await open(h, "key-live", "board-1", "self");
+		expect(sink.last("snapshot")!.peers).toEqual([]);
+	});
+
+	test("a publish reaches peers and never echoes to the publisher", async () => {
+		const h = harness();
+		const peer = await open(h, "key-live", "board-1", "peer");
+		const author = await open(h, "key-live", "board-1", "author");
+
+		await publish(h, "key-live", "board-1", "author", "cursor", { x: 7 });
+		await settle();
+
+		const seen = peer.framesOfType("presence");
+		expect(seen.length).toBeGreaterThan(0);
+		expect(seen[0]).toMatchObject({ clientId: "author", channel: "cursor", data: { x: 7 } });
+		expect(author.framesOfType("presence")).toHaveLength(0);
+	});
+
+	test("a room in another project never receives the frame", async () => {
+		const h = harness();
+		const outsider = await open(h, "key-other", "board-1", "outsider");
+
+		await publish(h, "key-live", "board-1", "insider", "cursor", { x: 1 });
+		await settle();
+
+		expect(outsider.framesOfType("presence")).toHaveLength(0);
+		expect(outsider.last("snapshot")!.peers).toEqual([]);
+	});
+
+	test("leaving drops the peer for everyone still watching", async () => {
+		const h = harness();
+		const peer = await open(h, "key-live", "board-1", "peer");
+		await publish(h, "key-live", "board-1", "goer", "cursor", { x: 1 });
+		await settle();
+
+		await h.service.leave({ apiKey: "key-live", room: "board-1", clientId: "goer" });
+		await settle();
+
+		const leaves = peer.framesOfType("leave");
+		expect(leaves).toHaveLength(1);
+		expect(leaves[0]).toMatchObject({ clientId: "goer", channel: "cursor" });
+	});
+
+	test("clearing one channel leaves the other alone", async () => {
+		const h = harness();
+		const peer = await open(h, "key-live", "board-1", "peer");
+		await publish(h, "key-live", "board-1", "author", "cursor", { x: 1 });
+		await publish(h, "key-live", "board-1", "author", "here", {});
+		await settle();
+
+		await h.service.leave({
+			apiKey: "key-live",
+			room: "board-1",
+			clientId: "author",
+			channel: "cursor",
+		});
+		await settle();
+
+		expect(peer.framesOfType("leave")).toEqual([
+			{ type: "leave", clientId: "author", channel: "cursor" },
 		]);
-
-		await service.shutdown();
+		const stillThere = await h.store.room("proj-1", "board-1");
+		expect(stillThere.map((entry) => entry.channel)).toEqual(["here"]);
 	});
 
-	test("disconnecting tells peers at once instead of waiting for a TTL", async () => {
-		const { service } = await setup();
-		const alice = await connect(service, "key-live", "board-1");
-		const bob = await connect(service, "key-live", "board-1");
-		await service.handle(
-			alice.clientId,
-			JSON.stringify({ type: "publish", channel: "cursor", data: { x: 1 } }),
-		);
-		bob.connection.frames.length = 0;
+	test("an expired entry becomes a leave without anyone announcing it", async () => {
+		// The TTL is the only thing covering a tab that closed without its
+		// beacon getting out, so the poll has to notice on its own.
+		let clock = 1_000_000;
+		const h = harness({ now: () => clock });
+		const peer = await open(h, "key-live", "board-1", "peer");
 
-		await service.close(alice.clientId);
+		await publish(h, "key-live", "board-1", "ghost", "cursor", { x: 1 }, { ttlMs: 50 });
+		await settle();
+		expect(peer.framesOfType("presence").length).toBeGreaterThan(0);
 
-		const leave = bob.connection.framesOfType("leave");
-		expect(leave.length).toBe(1);
-		expect(leave[0]!.clientId).toBe(alice.clientId);
-		expect(leave[0]!.channel).toBeUndefined();
-
-		await service.shutdown();
-	});
-
-	test("clear drops one channel and leaves the connection joined", async () => {
-		const { service } = await setup();
-		const alice = await connect(service, "key-live", "board-1");
-		const bob = await connect(service, "key-live", "board-1");
-		await service.handle(
-			alice.clientId,
-			JSON.stringify({ type: "publish", channel: "cursor", data: { x: 1 } }),
-		);
-		bob.connection.frames.length = 0;
-
-		await service.handle(alice.clientId, JSON.stringify({ type: "clear", channel: "cursor" }));
-
-		const leave = bob.connection.framesOfType("leave");
-		expect(leave.length).toBe(1);
-		expect(leave[0]!.channel).toBe("cursor");
-
-		// Still joined: a further publish reaches the room.
-		await service.handle(
-			alice.clientId,
-			JSON.stringify({ type: "publish", channel: "typing", data: { on: true } }),
-		);
-		expect(bob.connection.framesOfType("presence").length).toBe(1);
-
-		await service.shutdown();
-	});
-
-	test("publishing past the per-second ceiling is refused without dropping the socket", async () => {
-		const { service } = await setup();
-		const sender = await connect(service, "key-tiny", "room");
-		sender.connection.frames.length = 0;
-
-		for (let i = 0; i < 5; i++) {
-			await service.handle(
-				sender.clientId,
-				JSON.stringify({ type: "publish", channel: "cursor", data: { i } }),
-			);
-		}
-
-		// maxMessagesPerSecond is 2 for this project.
-		const errors = sender.connection.framesOfType("error");
-		expect(errors.length).toBe(3);
-		expect(errors[0]!.code).toBe("rate_limited");
-		expect(errors[0]!.fatal).toBe(false);
-		expect(sender.connection.closed).toBe(false);
-
-		await service.shutdown();
-	});
-
-	test("a project at its connection cap refuses the next connection", async () => {
-		const { service } = await setup();
-		const first = await connect(service, "key-tiny", "room");
-		expect(first.connection.framesOfType("welcome").length).toBe(1);
-
-		const second = await connect(service, "key-tiny", "room");
-		expect(second.connection.framesOfType("error")[0]?.code).toBe("project_connection_limit");
-		expect(second.connection.closed).toBe(true);
-
-		// Freeing the slot lets the next one in — the counter must not leak.
-		await service.close(first.clientId);
-		const third = await connect(service, "key-tiny", "room");
-		expect(third.connection.framesOfType("welcome").length).toBe(1);
-
-		await service.shutdown();
-	});
-
-	test("a malformed frame after hello is reported without closing", async () => {
-		const { service } = await setup();
-		const client = await connect(service, "key-live", "board-1");
-		client.connection.frames.length = 0;
-
-		await service.handle(client.clientId, "not json at all");
-
-		expect(client.connection.framesOfType("error")[0]?.code).toBe("bad_frame");
-		expect(client.connection.closed).toBe(false);
-
-		await service.shutdown();
-	});
-
-	test("ping is answered", async () => {
-		const { service } = await setup();
-		const client = await connect(service, "key-live", "board-1");
-		await service.handle(client.clientId, JSON.stringify({ type: "ping" }));
-		expect(client.connection.framesOfType("pong").length).toBe(1);
-		await service.shutdown();
-	});
-
-	test("presence crosses instances over the bus", async () => {
-		// One shared store and one shared bus, two services — the fleet case.
-		const redis = createFakeRedis();
-		const store = createMemoryEphemeral();
-		const a = await setup({ redis, store, serverId: "server-a" });
-		const b = await setup({ redis, store, serverId: "server-b" });
-
-		const alice = await connect(a.service, "key-live", "board-1", { name: "Alice" });
-		const bob = await connect(b.service, "key-live", "board-1");
-		bob.connection.frames.length = 0;
-
-		await a.service.handle(
-			alice.clientId,
-			JSON.stringify({ type: "publish", channel: "cursor", data: { x: 3 } }),
-		);
+		clock += 100;
 		await settle();
 
-		const received = bob.connection.framesOfType("presence");
-		expect(received.length).toBe(1);
-		expect(received[0]).toMatchObject({ clientId: alice.clientId, data: { x: 3 } });
-
-		// And the sender's own instance must not double-deliver its echo.
-		expect(alice.connection.framesOfType("presence").length).toBe(0);
-
-		await a.service.shutdown();
-		await b.service.shutdown();
+		expect(peer.framesOfType("leave")).toEqual([
+			{ type: "leave", clientId: "ghost", channel: "cursor" },
+		]);
 	});
 
-	test("a disconnect on one instance clears the cursor on another", async () => {
-		const redis = createFakeRedis();
-		const store = createMemoryEphemeral();
-		const a = await setup({ redis, store, serverId: "server-a" });
-		const b = await setup({ redis, store, serverId: "server-b" });
+	test("publishing past the per-second ceiling is refused without ending the stream", async () => {
+		const h = harness();
+		const sink = await open(h, "key-slow", "board-1", "spammer");
 
-		const alice = await connect(a.service, "key-live", "board-1");
-		const bob = await connect(b.service, "key-live", "board-1");
-		await a.service.handle(
-			alice.clientId,
-			JSON.stringify({ type: "publish", channel: "cursor", data: { x: 1 } }),
-		);
-		await settle();
-		bob.connection.frames.length = 0;
+		expect((await publish(h, "key-slow", "board-1", "spammer", "cursor", { x: 1 })).ok).toBe(true);
+		const second = await publish(h, "key-slow", "board-1", "spammer", "cursor", { x: 2 });
 
-		await a.service.close(alice.clientId);
-		await settle();
+		expect(second).toMatchObject({ ok: false, status: 429, code: "rate_limited" });
+		expect(sink.closed).toBe(false);
+	});
 
-		expect(bob.connection.framesOfType("leave").length).toBe(1);
+	test("a room at its entry limit refuses the next client", async () => {
+		const h = harness();
+		expect((await publish(h, "key-tiny", "board-1", "first", "cursor", { x: 1 })).ok).toBe(true);
 
-		await a.service.shutdown();
-		await b.service.shutdown();
+		const second = await publish(h, "key-tiny", "board-1", "second", "cursor", { x: 1 });
+		expect(second).toMatchObject({ ok: false, status: 409, code: "room_full" });
+	});
+
+	test("a project at its client cap still readmits a client it already has", async () => {
+		// Streams recycle about once a minute, so a reconnecting client that
+		// counted as a new occupant would lock a full project into a loop where
+		// its own users evict themselves.
+		const h = harness();
+		await publish(h, "key-tiny", "board-1", "resident", "cursor", { x: 1 });
+
+		const returning = await open(h, "key-tiny", "board-1", "resident");
+		expect(returning.last("welcome")).toBeDefined();
+
+		const newcomer = await open(h, "key-tiny", "board-1", "newcomer");
+		expect(newcomer.last("error")).toMatchObject({
+			code: "project_connection_limit",
+			fatal: true,
+		});
+		expect(newcomer.closed).toBe(true);
+	});
+
+	test("an oversized payload is refused", async () => {
+		const h = harness();
+		const huge = { blob: "x".repeat(MAX_PAYLOAD_BYTES) };
+		expect(await publish(h, "key-live", "board-1", "c1", "cursor", huge)).toMatchObject({
+			ok: false,
+			status: 413,
+		});
+	});
+
+	test("a stream says goodbye before it recycles, rather than dying mid-frame", async () => {
+		const h = harness({ streamMs: 20 });
+		const sink = await open(h, "key-live", "board-1", "c1");
+		await settle(60);
+
+		expect(sink.last("bye")).toEqual({ type: "bye", reason: "recycle" });
+		expect(sink.closed).toBe(true);
+	});
+
+	test("the last stream leaving a room stops the room being polled", async () => {
+		const h = harness();
+		const sink = await open(h, "key-live", "board-1", "c1");
+		expect(h.service.metrics()).toMatchObject({ streams: 1, rooms: 1 });
+
+		const { closeStream } = await import("../../services/presence/service.ts");
+		closeStream(sink);
+
+		expect(h.service.metrics()).toMatchObject({ streams: 0, rooms: 0 });
 	});
 
 	test("metrics report what the instance is holding", async () => {
-		const { service } = await setup();
-		const client = await connect(service, "key-live", "board-1");
-		await service.handle(
-			client.clientId,
-			JSON.stringify({ type: "publish", channel: "cursor", data: { x: 1 } }),
-		);
+		const h = harness();
+		await open(h, "key-live", "board-1", "c1");
+		await open(h, "key-live", "board-1", "c2");
+		await open(h, "key-live", "board-2", "c3");
+		await publish(h, "key-live", "board-1", "c1", "cursor", { x: 1 });
+		await open(h, "nope", "board-1", "c4");
 
-		const metrics = service.metrics();
-		expect(metrics.connections).toBe(1);
-		expect(metrics.rooms).toBe(1);
-		expect(metrics.messagesPublished).toBe(1);
-		expect(metrics.serverId).toBe("server-a");
-
-		await service.shutdown();
+		expect(h.service.metrics()).toMatchObject({
+			streams: 3,
+			rooms: 2,
+			messagesPublished: 1,
+			requestsRejected: 1,
+		});
 	});
 
-	test("shutdown releases every connection slot it held", async () => {
-		const { service, redis } = await setup();
-		await connect(service, "key-live", "board-1");
-		await connect(service, "key-live", "board-1");
-		expect(await service.registry.connectionCount("proj-1")).toBe(2);
+	test("a fresh sink joining mid-room is handed the room, not an empty one", async () => {
+		const h = harness();
+		await open(h, "key-live", "board-1", "first");
+		await publish(h, "key-live", "board-1", "first", "cursor", { x: 1 });
+		await settle();
 
-		// A rolling deploy must not leave a project counted against its cap by a
-		// machine that no longer exists.
-		await service.shutdown();
-		expect(Number(redis.strings.get("presence:conn:proj-1"))).toBe(0);
+		const late = createFakeSink();
+		await h.service.openStream({ apiKey: "key-live", room: "board-1", clientId: "late" }, late);
+		expect(late.last("snapshot")!.peers).toHaveLength(1);
 	});
 });

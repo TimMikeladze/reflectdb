@@ -4,12 +4,15 @@ interface ImportMetaEnv {
 	/**
 	 * Public API key for the presence demo on this page. The landing page is a
 	 * static bundle, so this key ships to every visitor by design — it is scoped
-	 * to a throwaway project with its own connection and rate ceilings, and is
+	 * to a throwaway project with its own client and rate ceilings, and is
 	 * revocable without touching anything else. Unset simply turns the live
 	 * cursors off; the card falls back to a static illustration.
 	 */
 	readonly VITE_PRESENCE_KEY?: string;
-	/** Points the demo at a local presence service during development. */
+	/**
+	 * Points the demo at a local presence service during development — the base
+	 * URL, without a path, e.g. `http://localhost:8080/api/presence`.
+	 */
 	readonly VITE_PRESENCE_URL?: string;
 }
 

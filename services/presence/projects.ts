@@ -1,22 +1,22 @@
 /**
  * Project lookup and per-project limits.
  *
- * Redis is the source of truth: a key lives at `{prefix}:key:{apiKey}` as a
- * hash. That keeps this service free of any control-plane concern — issuing,
- * revoking and billing keys is somebody else's write to the same hash, and
+ * Postgres is the source of truth: a key lives as a row in `presence_key`.
+ * That keeps this service free of any control-plane concern — issuing,
+ * revoking and billing keys is somebody else's write to the same table, and
  * this process only ever reads.
  *
- * `PRESENCE_PROJECTS` seeds keys at boot so a self-hosted or first-deploy
- * instance works before any control plane exists.
+ * `PRESENCE_PROJECTS` seeds keys so a self-hosted or first-deploy instance
+ * works before any control plane exists.
  */
 
-import type { RedisLike } from "../../src/server/ephemeral/redis.ts";
+import type { PresenceStore, SqlClient } from "./store.js";
 
 export interface Project {
 	projectId: string;
-	/** Concurrent connections allowed across the fleet. */
+	/** Distinct clients allowed to hold live state in the project at once. */
 	maxConnections: number;
-	/** Published frames per connection per second. */
+	/** Writes accepted per second, per client, per channel. */
 	maxMessagesPerSecond: number;
 	/** Entries one room may hold, across all channels. */
 	maxEntriesPerRoom: number;
@@ -35,129 +35,195 @@ export const DEFAULT_LIMITS: Omit<Project, "projectId"> = {
 
 /** Free-tier shape, used when a seeded project omits limits. */
 function withDefaults(projectId: string, overrides: Partial<Project> = {}): Project {
-	return { projectId, ...DEFAULT_LIMITS, ...overrides };
+	const merged = { projectId, ...DEFAULT_LIMITS, ...overrides };
+	// A seed entry carrying `projectId: undefined` would otherwise win over the
+	// argument and produce a project nothing can be attributed to.
+	merged.projectId = projectId;
+	return merged;
 }
 
-function fieldsFromHash(reply: unknown): Record<string, string> {
-	if (Array.isArray(reply)) {
-		const out: Record<string, string> = {};
-		for (let i = 0; i + 1 < reply.length; i += 2) {
-			out[String(reply[i])] = String(reply[i + 1]);
-		}
-		return out;
-	}
-	if (reply && typeof reply === "object") {
-		return Object.fromEntries(
-			Object.entries(reply as Record<string, unknown>).map(([k, v]) => [k, String(v)]),
-		);
-	}
-	return {};
-}
+export const PROJECTS_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS presence_key (
+  api_key                 text PRIMARY KEY,
+  project_id              text NOT NULL,
+  max_connections         int,
+  max_messages_per_second int,
+  max_entries_per_room    int,
+  default_ttl_ms          bigint,
+  max_ttl_ms              bigint
+);
+`;
 
-function numberOr(value: string | undefined, fallback: number): number {
-	if (value === undefined) return fallback;
+function numberOr(value: unknown, fallback: number): number {
+	if (value === null || value === undefined) return fallback;
 	const parsed = Number(value);
 	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+export type SeedDefinition = Partial<Project> & { projectId: string };
+
 export interface ProjectRegistryConfig {
-	client: RedisLike;
-	prefix?: string;
+	sql: SqlClient;
 	/**
 	 * Seed definitions, as `{ "<apiKey>": { projectId, maxConnections, … } }`.
-	 * Written on boot; existing Redis entries win, so a control-plane update is
-	 * never clobbered by a redeploy.
+	 * Written once; an existing row wins, so a control-plane update is never
+	 * clobbered by a redeploy.
 	 */
-	seed?: Record<string, Partial<Project> & { projectId: string }>;
+	seed?: Record<string, SeedDefinition>;
 	/** How long a resolved key is cached in-process. Default 30s. */
 	cacheTtlMs?: number;
+	/** Run `CREATE TABLE IF NOT EXISTS` and the seed lazily. Default true. */
+	migrate?: boolean;
 }
 
 export interface ProjectRegistry {
-	seed(): Promise<number>;
 	resolve(apiKey: string): Promise<Project | null>;
-	/** Reserve a connection slot. Returns false when the project is at its cap. */
-	acquireConnection(project: Project): Promise<boolean>;
-	releaseConnection(project: Project): Promise<void>;
-	connectionCount(projectId: string): Promise<number>;
+	/**
+	 * Whether a client may take a slot in the project.
+	 *
+	 * Approximate by construction. There is no socket to count with SSE — a
+	 * stream is a request that ends every minute — so occupancy is measured as
+	 * "distinct clients holding live state", which counts a client that has
+	 * gone away until its entries expire.
+	 */
+	hasCapacity(project: Project, clientId: string): Promise<boolean>;
+	clientCount(projectId: string): Promise<number>;
 }
 
-export function createProjectRegistry(config: ProjectRegistryConfig): ProjectRegistry {
-	const client = config.client;
-	const prefix = config.prefix ?? "presence";
+export function createProjectRegistry(
+	config: ProjectRegistryConfig & { store: PresenceStore },
+): ProjectRegistry {
+	const sql = config.sql;
 	const cacheTtlMs = config.cacheTtlMs ?? 30_000;
-
-	const keyHash = (apiKey: string) => `${prefix}:key:${apiKey}`;
-	const connKey = (projectId: string) => `${prefix}:conn:${projectId}`;
-
 	const cache = new Map<string, { project: Project | null; expiresAt: number }>();
+	let migration: Promise<void> | null = null;
+
+	async function ready(): Promise<void> {
+		if (config.migrate === false) return;
+		migration ??= (async () => {
+			await sql.query(PROJECTS_SCHEMA_SQL);
+			for (const [apiKey, definition] of Object.entries(config.seed ?? {})) {
+				const project = withDefaults(definition.projectId, definition);
+				await sql.query(
+					`INSERT INTO presence_key
+					   (api_key, project_id, max_connections, max_messages_per_second,
+					    max_entries_per_room, default_ttl_ms, max_ttl_ms)
+					 VALUES ($1, $2, $3, $4, $5, $6, $7)
+					 ON CONFLICT (api_key) DO NOTHING`,
+					[
+						apiKey,
+						project.projectId,
+						project.maxConnections,
+						project.maxMessagesPerSecond,
+						project.maxEntriesPerRoom,
+						project.defaultTtlMs,
+						project.maxTtlMs,
+					],
+				);
+			}
+		})();
+		await migration;
+	}
 
 	return {
-		async seed(): Promise<number> {
-			if (!config.seed) return 0;
-			let written = 0;
-			for (const [apiKey, definition] of Object.entries(config.seed)) {
-				const project = withDefaults(definition.projectId, definition);
-				// HSETNX per field: a control plane that has already tuned a limit
-				// keeps its value across deploys of this service.
-				for (const [field, value] of Object.entries(project)) {
-					await client.call("HSETNX", keyHash(apiKey), field, String(value));
-				}
-				written++;
-			}
-			return written;
-		},
-
 		async resolve(apiKey: string): Promise<Project | null> {
 			const now = Date.now();
 			const cached = cache.get(apiKey);
 			if (cached && cached.expiresAt > now) return cached.project;
 
-			const fields = fieldsFromHash(await client.call("HGETALL", keyHash(apiKey)));
-			const projectId = fields.projectId;
-			const project: Project | null = projectId
+			await ready();
+			const { rows } = await sql.query(
+				`SELECT project_id, max_connections, max_messages_per_second,
+				        max_entries_per_room, default_ttl_ms, max_ttl_ms
+				   FROM presence_key WHERE api_key = $1`,
+				[apiKey],
+			);
+			const row = rows[0];
+			const project: Project | null = row
 				? {
-						projectId,
-						maxConnections: numberOr(fields.maxConnections, DEFAULT_LIMITS.maxConnections),
+						projectId: String(row.project_id),
+						maxConnections: numberOr(row.max_connections, DEFAULT_LIMITS.maxConnections),
 						maxMessagesPerSecond: numberOr(
-							fields.maxMessagesPerSecond,
+							row.max_messages_per_second,
 							DEFAULT_LIMITS.maxMessagesPerSecond,
 						),
-						maxEntriesPerRoom: numberOr(
-							fields.maxEntriesPerRoom,
-							DEFAULT_LIMITS.maxEntriesPerRoom,
-						),
-						defaultTtlMs: numberOr(fields.defaultTtlMs, DEFAULT_LIMITS.defaultTtlMs),
-						maxTtlMs: numberOr(fields.maxTtlMs, DEFAULT_LIMITS.maxTtlMs),
+						maxEntriesPerRoom: numberOr(row.max_entries_per_room, DEFAULT_LIMITS.maxEntriesPerRoom),
+						defaultTtlMs: numberOr(row.default_ttl_ms, DEFAULT_LIMITS.defaultTtlMs),
+						maxTtlMs: numberOr(row.max_ttl_ms, DEFAULT_LIMITS.maxTtlMs),
 					}
 				: null;
 
 			// Misses are cached too, so an invalid key sprayed at the service
-			// costs one Redis read per cache window rather than one per attempt.
+			// costs one query per cache window rather than one per attempt.
 			cache.set(apiKey, { project, expiresAt: now + cacheTtlMs });
 			return project;
 		},
 
-		async acquireConnection(project: Project): Promise<boolean> {
-			const count = Number(await client.call("INCR", connKey(project.projectId)));
-			if (count > project.maxConnections) {
-				await client.call("DECR", connKey(project.projectId));
-				return false;
-			}
-			// Expiry is a self-heal: if an instance dies without releasing, the
-			// counter cannot strand a project above its cap forever.
-			await client.call("EXPIRE", connKey(project.projectId), 3600);
-			return true;
+		async hasCapacity(project: Project, clientId: string): Promise<boolean> {
+			const count = await config.store.countClients(project.projectId);
+			if (count < project.maxConnections) return true;
+			// A client already inside the project is not a new occupant: it is
+			// reconnecting after a stream recycle, which happens to everyone
+			// every minute. Counting it again would put a full project into a
+			// loop where its own users are evicted as they reconnect.
+			return config.store.hasClient(project.projectId, clientId);
 		},
 
-		async releaseConnection(project: Project): Promise<void> {
-			const count = Number(await client.call("DECR", connKey(project.projectId)));
-			if (count < 0) await client.call("SET", connKey(project.projectId), "0");
-		},
-
-		async connectionCount(projectId: string): Promise<number> {
-			const reply = await client.call("GET", connKey(projectId));
-			return reply == null ? 0 : Number(reply);
+		async clientCount(projectId: string): Promise<number> {
+			return config.store.countClients(projectId);
 		},
 	};
+}
+
+/**
+ * A registry that resolves keys straight from the seed, with no database.
+ *
+ * For tests and for a local run: `bun services/presence/dev.ts` with
+ * `PRESENCE_STORE=memory` needs no Postgres at all, and a protocol test should
+ * not have to stand one up to check that a bad key is refused.
+ */
+export function createStaticRegistry(
+	seed: Record<string, SeedDefinition>,
+	store: PresenceStore,
+): ProjectRegistry {
+	const byKey = new Map<string, Project>(
+		Object.entries(seed).map(([apiKey, definition]) => [
+			apiKey,
+			withDefaults(definition.projectId, definition),
+		]),
+	);
+	return {
+		async resolve(apiKey: string): Promise<Project | null> {
+			return byKey.get(apiKey) ?? null;
+		},
+		async hasCapacity(project: Project, clientId: string): Promise<boolean> {
+			const count = await store.countClients(project.projectId);
+			if (count < project.maxConnections) return true;
+			return store.hasClient(project.projectId, clientId);
+		},
+		async clientCount(projectId: string): Promise<number> {
+			return store.countClients(projectId);
+		},
+	};
+}
+
+/** Parse `PRESENCE_PROJECTS`, or refuse to start. */
+export function parseSeed(raw: string | undefined): Record<string, SeedDefinition> | undefined {
+	if (!raw) return undefined;
+	let parsed: Record<string, SeedDefinition>;
+	try {
+		parsed = JSON.parse(raw) as Record<string, SeedDefinition>;
+	} catch (err) {
+		// Refusing to boot beats booting with no valid keys and rejecting every
+		// client with "unknown API key" until somebody reads the logs.
+		throw new Error(
+			`PRESENCE_PROJECTS is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+		);
+	}
+	for (const [apiKey, definition] of Object.entries(parsed)) {
+		if (!definition?.projectId) {
+			throw new Error(`PRESENCE_PROJECTS entry "${apiKey}" is missing projectId`);
+		}
+	}
+	return parsed;
 }

@@ -328,6 +328,7 @@ export function renderApp(root: HTMLElement): void {
             <li>one row per stroke — no line overwrites another</li>
             <li>only the drawer's tab receives the word</li>
             <li>guest sign-in, no account needed</li>
+            <li>rooms and their drawings are deleted 30 minutes after creation</li>
           </ul>
           <div class="demo-actions">
             <a class="btn primary" href="${WHITEBOARD_DEMO}">open the demo →</a>
@@ -379,7 +380,7 @@ export function renderApp(root: HTMLElement): void {
 
       <article class="demo-feature">
         <div class="demo-copy">
-          <div class="demo-status"><span></span>deployed on fly.io · running right now</div>
+          <div class="demo-status"><span></span>deployed on Vercel · running right now</div>
           <h4>Presence, live on this page</h4>
           <p>
             The other two demos are somewhere else. This one is here: the panel is connected
@@ -388,8 +389,8 @@ export function renderApp(root: HTMLElement): void {
           </p>
           <ul class="demo-facts">
             <li>a snapshot on join — late arrivals see who is already there</li>
-            <li>a closed tab drops its cursor at once, not on a TTL</li>
-            <li>state and fan-out live in Redis, so rooms span the fleet</li>
+            <li>server-sent events down, plain POSTs up — no sockets anywhere</li>
+            <li>state lives in Postgres, so a room spans every instance</li>
           </ul>
           <div class="demo-actions">
             <a class="btn primary" href="${PRESENCE_SERVICE}">read the service →</a>
@@ -403,7 +404,7 @@ export function renderApp(root: HTMLElement): void {
         <div class="demo-preview demo-live" id="presence-demo">
           <div class="demo-chrome">
             <span class="demo-chrome-dot"></span>
-            <span>reflectdb-presence.fly.dev</span>
+            <span>reflectdb-presence.vercel.app</span>
             <span class="demo-synced" data-presence-state>connecting</span>
           </div>
           <div class="presence-surface" data-presence-surface>
