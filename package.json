@@ -218,18 +218,19 @@
 		"access": "public"
 	},
 	"scripts": {
-		"build": "bunup --filter esm && bunup --filter cjs",
+		"build": "NODE_ENV=production bunup --filter esm && NODE_ENV=production bunup --filter cjs && bun run verify:jsx",
 		"format": "oxfmt",
 		"lint": "oxlint",
 		"prepare": "bun simple-git-hooks",
 		"release": "bumpp --commit --push --tag",
 		"test": "bun test",
 		"test:coverage": "bun test --coverage",
-		"test:watch": "bun test --watch",
-		"test:ui": "bun test/ui/server.tsx",
 		"test:sync": "bun test/ui/test-sync.ts",
+		"test:ui": "bun test/ui/server.tsx",
+		"test:watch": "bun test --watch",
 		"type-check": "tsc --noEmit",
 		"verify:exports": "bun scripts/verify-exports.ts",
+		"verify:jsx": "bun scripts/verify-jsx.ts",
 		"verify:node": "bun scripts/verify-node-consumer.ts"
 	},
 	"devDependencies": {

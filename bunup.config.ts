@@ -1,5 +1,20 @@
 import { defineConfig } from "bunup";
 
+// Bun's transpiler picks the JSX runtime from NODE_ENV at build time: anything
+// other than "production" emits `jsxDEV` from `react/jsx-dev-runtime`. React's
+// production build does not export `jsxDEV`, so a dev-mode artifact makes
+// `<SyncProvider>` die with `TypeError: (0, x.jsxDEV) is not a function` in
+// every consumer that bundles for production — Next, Vite, anything. The build
+// still succeeds, which is what makes it easy to ship.
+//
+// The npm `build` script sets NODE_ENV=production because Bun reads it before
+// this config is evaluated — assigning `process.env.NODE_ENV` here is too late
+// to change the transpiler's choice. This assignment is a floor for anyone who
+// runs `bunup` directly with NODE_ENV unset, not a substitute for the script.
+// `scripts/verify-jsx.ts` is what actually guarantees it: the build fails if a
+// dev-runtime reference survives into dist/.
+process.env.NODE_ENV ??= "production";
+
 const entry = [
 	"src/core/index.ts",
 	"src/client/index.ts",
