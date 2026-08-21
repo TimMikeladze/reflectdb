@@ -1,6 +1,6 @@
 {
 	"name": "reflectdb",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Real-time sync engine for TypeScript — a server database and offline-first browser clients stay in sync, with optimistic writes and typed queries.",
 	"keywords": [
 		"bun",
