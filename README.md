@@ -1658,6 +1658,23 @@ each card has to stay under 300 kB or WhatsApp silently downgrades it to a small
 thumbnail — the script renders at the largest scale factor that fits, and fails
 if a card is oversized or the wrong shape.
 
+#### Analytics
+
+The site reports page views to a self-hosted [Umami](https://umami.is) instance,
+and does so only when it is configured to. `landing/vite.config.ts` injects the
+tag into `index.html` at build time from these variables — with the website id
+unset, nothing is injected and the page makes no third-party request, so a local
+dev server or a fork builds and runs untouched:
+
+| Variable | Required | Default | Purpose |
+|----------|----------|---------|---------|
+| `VITE_UMAMI_WEBSITE_ID` | yes, to enable | — | The site's id in Umami. Unset disables analytics entirely. |
+| `VITE_UMAMI_SCRIPT_URL` | no | `https://linesofcode-umami.vercel.app/script.js` | The tracker script, if you host Umami elsewhere. |
+| `VITE_UMAMI_DOMAINS` | no | — | Comma-separated hostnames to count. Set it to `reflectdb.dev` to keep preview deployments and localhost out of the numbers. |
+
+They are read at build time, so changing one in the Vercel project takes effect
+on the next deployment rather than the next request.
+
 ### Project Structure
 
 ```
