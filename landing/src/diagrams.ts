@@ -88,11 +88,259 @@ function label(
 	return `<text x="${x}" y="${y}" text-anchor="${anchor}" class="${cls}">${escapeHtml(text)}</text>`;
 }
 
+/** Filled event marker, for timelines where a box would be too heavy. */
+function dot(x: number, y: number, tone: Tone = "fg", r = 5): string {
+	return `<circle cx="${x}" cy="${y}" r="${r}" class="pt pt-${tone}"/>`;
+}
+
+/** Thicker underline, for calling out one span of a longer string. */
+function bar(x1: number, x2: number, y: number, tone: Tone): string {
+	return `<path d="M${x1},${y} L${x2},${y}" class="ln ln-${tone} bar" fill="none"/>`;
+}
+
 function stepNo(x: number, y: number, n: number): string {
 	return `<circle cx="${x}" cy="${y}" r="9" class="num"/><text x="${x}" y="${
 		y + 3.5
 	}" text-anchor="middle" class="numt">${n}</text>`;
 }
+
+// ── 0a. Latency — where the round trip actually sits ────────────────────
+
+export const latency = frame(880, 316, (id) => {
+	const LANE_A = 96;
+	const LANE_S = 176;
+	const LANE_B = 256;
+	const T0 = 262;
+	const T1 = 668;
+
+	return [
+		label(24, LANE_A + 4, "YOUR TAB", "start", "hd"),
+		label(24, LANE_S + 4, "SERVER", "start", "hd"),
+		label(24, LANE_B + 4, "OTHER TAB", "start", "hd"),
+		line([
+			[150, LANE_A],
+			[T1 + 8, LANE_A],
+		]),
+		line([
+			[150, LANE_S],
+			[610, LANE_S],
+		]),
+		line([
+			[150, LANE_B],
+			[T1 + 8, LANE_B],
+		]),
+		line(
+			[
+				[T0, 54],
+				[T0, 288],
+			],
+			"m",
+			true,
+		),
+
+		dot(T0, LANE_A, "g"),
+		label(T0, 62, "you click", "middle", "t1"),
+		label(T0, 78, "the row has already changed", "middle", "t2"),
+
+		arrow(
+			[
+				[272, 104],
+				[396, 150],
+			],
+			id,
+			"g",
+		),
+		label(290, 142, "op + hlc", "start"),
+
+		node(400, 152, 200, 48, ["pipeline · mutate · commit"], { tone: "b" }),
+
+		arrow(
+			[
+				[604, 168],
+				[634, 168],
+				[634, 104],
+				[660, 104],
+			],
+			id,
+			"b",
+		),
+		label(640, 140, "ack", "start"),
+		arrow(
+			[
+				[604, 184],
+				[634, 184],
+				[634, 248],
+				[660, 248],
+			],
+			id,
+			"b",
+		),
+		label(640, 216, "delta", "start"),
+
+		dot(T1, LANE_A, "b"),
+		label(686, 92, "confirmed — nothing repaints", "start", "t2"),
+		dot(T1, LANE_B, "g"),
+		label(686, 252, "the row appears here too", "start", "t1"),
+
+		label(T0, 304, "0 ms"),
+		label(T1, 304, "one round trip later"),
+	].join("");
+});
+
+// ── 0b. The clock — ordering as a string compare ────────────────────────
+
+export const clock = frame(880, 244, () => {
+	const CH = 13.2;
+	const X0 = 209;
+	const big = (x: number, chars: number, text: string, tone: Tone) =>
+		`<text x="${x}" y="86" textLength="${(chars * CH).toFixed(1)}" lengthAdjust="spacing" class="big tone-${tone}">${escapeHtml(
+			text,
+		)}</text>`;
+
+	const xMs = X0;
+	const xDot1 = xMs + 19 * CH;
+	const xCtr = xDot1 + CH;
+	const xDot2 = xCtr + 4 * CH;
+	const xNid = xDot2 + CH;
+	const xEnd = xNid + 10 * CH;
+
+	return [
+		label(440, 44, "ONE WRITE'S STAMP", "middle", "hd"),
+		big(xMs, 19, "0000001711234567890", "o"),
+		big(xDot1, 1, ".", "m"),
+		big(xCtr, 4, "0003", "g"),
+		big(xDot2, 1, ".", "m"),
+		big(xNid, 10, "client-a1f", "b"),
+
+		bar(xMs, xDot1, 104, "o"),
+		bar(xCtr, xDot2, 104, "g"),
+		bar(xNid, xEnd, 104, "b"),
+
+		label((xMs + xDot1) / 2, 126, "wall-clock ms", "middle", "t1"),
+		label((xMs + xDot1) / 2, 142, "padded to 19 digits", "middle", "t2"),
+		label((xCtr + xDot2) / 2, 126, "counter", "middle", "t1"),
+		label((xCtr + xDot2) / 2, 142, "same-ms ties", "middle", "t2"),
+		label((xNid + xEnd) / 2, 126, "who wrote it", "middle", "t1"),
+		label((xNid + xEnd) / 2, 142, "final tiebreak", "middle", "t2"),
+
+		label(
+			440,
+			190,
+			"0000001711234567890.0003.client-a1f  <  0000001711234567890.0004.client-b7c",
+			"middle",
+			"t2",
+		),
+		label(440, 218, "causal order is lexicographic order — no parsing, no synchronized clocks"),
+	].join("");
+});
+
+// ── 0c. Conflict policies, side by side ─────────────────────────────────
+
+export const policies = frame(880, 280, () => {
+	const W = 406;
+	const H = 86;
+	return [
+		label(24, 34, "DECLARED PER TABLE, IN THE SCHEMA", "start", "hd"),
+		node(
+			24,
+			52,
+			W,
+			H,
+			["lww — whole row", "the later clock replaces the row;", "the other edit is gone"],
+			{
+				tone: "g",
+				left: true,
+			},
+		),
+		node(
+			450,
+			52,
+			W,
+			H,
+			["merge — per column", "every column keeps its own newest", "write, so both edits land"],
+			{ tone: "b", left: true },
+		),
+		node(
+			24,
+			152,
+			W,
+			H,
+			["server — first write only", "the row is created once; every", "later write is refused"],
+			{ tone: "o", left: true },
+		),
+		node(
+			450,
+			152,
+			W,
+			H,
+			["custom — your function", "you get the op, the row and its", "clocks; you return the row"],
+			{ tone: "fg", left: true },
+		),
+		label(440, 268, "both eager broadcast modes skip the question — writes land last-writer-wins"),
+	].join("");
+});
+
+// ── 0d. Offline, and the queue that drains ──────────────────────────────
+
+export const offlineQueue = frame(880, 306, (id) => {
+	const chip = (y: number, text: string) =>
+		[
+			`<rect x="300" y="${y}" width="230" height="24" rx="3" class="nb nb-o"/>`,
+			label(310, y + 16, text, "start", "t2"),
+		].join("");
+
+	return [
+		label(24, 32, "WHILE THE SOCKET IS DOWN", "start", "hd"),
+		node(
+			24,
+			46,
+			250,
+			76,
+			["your tab", "insert and update keep working", "at full speed, in order"],
+			{
+				tone: "g",
+				left: true,
+			},
+		),
+		label(300, 42, "pending — IndexedDB", "start", "t2"),
+		chip(52, "update todos/42 …0007"),
+		chip(82, "insert todos/91 …0008"),
+		chip(112, "delete todos/17 …0009"),
+		line(
+			[
+				[576, 44],
+				[576, 140],
+			],
+			"o",
+			true,
+		),
+		label(576, 34, "no socket", "middle", "t2"),
+		node(610, 62, 246, 60, ["the server", "hears nothing about any of it"], {
+			tone: "b",
+			left: true,
+		}),
+
+		label(24, 186, "BACK", "start", "hd"),
+		node(24, 200, 250, 60, ["reconnect", "hello · sync_declare · resume"], {
+			tone: "g",
+			left: true,
+		}),
+		arrow(
+			[
+				[280, 230],
+				[606, 230],
+			],
+			id,
+			"g",
+		),
+		label(443, 218, "ops[] — everything queued, ≤ 100 per message", "middle", "t2"),
+		node(610, 200, 246, 60, ["ack [opIds]", "each op id reserved exactly once"], {
+			tone: "b",
+			left: true,
+		}),
+		label(440, 294, "a resend after a dropped frame is acked, never applied a second time"),
+	].join("");
+});
 
 // ── 1. Topology ─────────────────────────────────────────────────────────
 

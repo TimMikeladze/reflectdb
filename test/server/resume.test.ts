@@ -65,7 +65,7 @@ async function tick(ms = 10): Promise<void> {
 	return new Promise((r) => setTimeout(r, ms));
 }
 
-describe("Resume with delta catch-up", () => {
+describe("Resume catch-up", () => {
 	beforeEach(() => {});
 
 	test("resume re-executes queries for changed tables and sends snapshots", async () => {

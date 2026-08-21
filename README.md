@@ -1060,7 +1060,9 @@ Both eager broadcast modes skip conflict resolution entirely — writes land las
 3.  client ──▶ ops (optimistic)   server runs pipeline
 4.                                server ──▶ ack / reject
 5.                                server ──▶ delta (broadcast to subscribers)
-6.  client reconnects ──▶ resume (watermark HLC)   server ──▶ missed deltas
+6.  client reconnects ──▶ resume (watermark HLC)
+7.                                server ──▶ snapshot per changed query,
+                                              then resume_complete
 ```
 
 All messages are JSON; the transport is just a pipe. WebSocket gives bi-directional real-time; SSE gives server-push with POST for upstream; polling is stateless HTTP for constrained environments.
@@ -1083,9 +1085,20 @@ A write therefore lands in two places: your `mutate` callback commits to your da
 
 ### The Op Log and Resume
 
-Every accepted mutation is appended to the server's op log with its HLC. On reconnect, the client sends its last seen HLC as a watermark, and the server replays only what the client missed. This makes cross-server failover automatic when the log is shared (Postgres).
+Every accepted mutation is appended to the server's op log with its HLC. On reconnect, the client sends its last seen HLC as a watermark.
 
-Old ops are compacted on a schedule based on client inactivity and minimum op age. Reconnecting clients whose watermark has been compacted receive a fresh bootstrap.
+The server does **not** replay those ops to the client. It asks the log a single question — *which tables changed since this HLC* — and then re-executes the subscribed queries that depend on those tables, sending each result as a fresh `snapshot`, followed by `resume_complete`.
+
+Re-running the query is what keeps resume honest: the client's own `auth`, params and room scoping are applied to what comes back, exactly as they were at bootstrap. A raw op replay would hand back rows the query itself would have filtered out.
+
+Two details worth knowing:
+
+- When at least one table has moved, queries depending on none of them are skipped. With no op log configured — or if the log lookup fails — every subscribed query re-runs instead.
+- Adapters that implement `getChangedTablesSince` answer with just the distinct table names. Without it, the handler falls back to `getOpsSince` and reads the op rows only to collect those names, which is unbounded work for a client that has been away a long time.
+
+Because the watermark is only an HLC and the log is the only shared state, cross-server failover is automatic when that log is shared (Postgres) — any instance can answer the question.
+
+Old ops are compacted on a schedule based on client inactivity and minimum op age. A client whose watermark is older than the compaction cutoff gets `resume_rejected` with `reason: "compacted"` and falls back to a fresh bootstrap.
 
 ## API Reference
 
