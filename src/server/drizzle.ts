@@ -1,5 +1,5 @@
-import { createRequire } from "node:module";
 import type { DrizzleTableLike } from "../core/schema.ts";
+import { nodeRequire } from "./node-require.ts";
 import type { AuthContext } from "../core/types.ts";
 import {
 	defineTable,
@@ -14,10 +14,10 @@ type SQL = import("drizzle-orm").SQL;
 
 // ── Lazy drizzle helpers ────────────────────────────────────────────────
 
-// `createRequire` lets us synchronously resolve `drizzle-orm` only when a
-// drizzle code path runs. The module re-exports `drizzleTable` from
-// `reflectdb/server`; if drizzle isn't installed (kysely / prisma / raw-SQL
-// apps), top-level evaluation here MUST NOT touch drizzle-orm.
+// `nodeRequire` synchronously resolves `drizzle-orm` only when a drizzle code
+// path runs. The module re-exports `drizzleTable` from `reflectdb/server`; if
+// drizzle isn't installed (kysely / prisma / raw-SQL apps), top-level
+// evaluation here MUST NOT touch drizzle-orm.
 
 interface DrizzleHelpers {
 	eq: typeof import("drizzle-orm").eq;
@@ -25,13 +25,12 @@ interface DrizzleHelpers {
 	getTableName: typeof import("drizzle-orm").getTableName;
 }
 
-const requireFn = createRequire(import.meta.url);
 let cachedDrizzle: DrizzleHelpers | null | undefined;
 
 function loadDrizzleSync(): DrizzleHelpers {
 	if (cachedDrizzle === undefined) {
 		try {
-			const mod = requireFn("drizzle-orm") as DrizzleHelpers;
+			const mod = nodeRequire("drizzle-orm") as DrizzleHelpers;
 			cachedDrizzle = { eq: mod.eq, sql: mod.sql, getTableName: mod.getTableName };
 		} catch {
 			cachedDrizzle = null;

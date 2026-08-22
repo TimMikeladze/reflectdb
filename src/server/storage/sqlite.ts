@@ -1,5 +1,5 @@
-import { createRequire } from "node:module";
 import type { StorageAdapter, OpLogEntry } from "../handler.ts";
+import { nodeRequire } from "../node-require.ts";
 import type { ExistingRow } from "../conflict.ts";
 
 /**
@@ -57,11 +57,9 @@ type _BunDatabaseIsSatisfied = Assert<
 // module. A top-level import therefore makes the entire server entry point
 // unloadable on Node — including for apps that only use
 // `createPostgresStorage`. Resolve it lazily, on the SQLite path alone.
-const requireFn = createRequire(import.meta.url);
-
 function loadDatabase(): new (path?: string) => BunDatabase {
 	try {
-		return (requireFn("bun:sqlite") as { Database: new (path?: string) => BunDatabase }).Database;
+		return (nodeRequire("bun:sqlite") as { Database: new (path?: string) => BunDatabase }).Database;
 	} catch {
 		throw new Error(
 			"createSqliteStorage requires the Bun runtime (bun:sqlite is unavailable). Use createPostgresStorage on Node.",

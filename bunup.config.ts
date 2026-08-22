@@ -54,7 +54,34 @@ const shared = {
 // Consumers still tree-shake fine: no entry point runs code at import time, and
 // the per-feature subpaths keep `reflectdb/core` from pulling in `reflectdb/server`.
 export default defineConfig([
-	{ name: "esm", ...shared, format: ["esm"], clean: true },
+	{
+		name: "esm",
+		...shared,
+		format: ["esm"],
+		clean: true,
+		// NOT bunup's default `target: "node"`. Under that target Bun's bundler
+		// emits its `__require` interop shim as `import { createRequire } from
+		// "node:module"`, puts it in a shared chunk, and side-effect-imports that
+		// chunk from EVERY entry — `reflectdb/core`, `reflectdb/client` and
+		// `reflectdb/react` included. Nothing in this package ever calls the shim,
+		// but the import is static, so a browser bundler sees a client chunk
+		// reaching for a Node builtin. Turbopack refuses it outright:
+		//
+		//   the chunking context (unknown) does not support external modules
+		//   (request: node:module)
+		//
+		// and every consumer needs an alias to a hand-written stub to build at all.
+		// The browser target emits the same shim as a portable `require`-sniffing
+		// closure with no import, which the server entries never reach either.
+		//
+		// Safe because no module under src/ imports a `node:` builtin — the one
+		// place that needs CommonJS resolution goes through
+		// `src/server/node-require.ts`, which reads `process.getBuiltinModule` at
+		// call time. Keep it that way: a `node:` import anywhere in src/ would be
+		// bundled as a bare external here and fail on Node instead of being
+		// hoisted. `bun run verify:node` is what catches it.
+		target: "browser",
+	},
 	{
 		name: "cjs",
 		...shared,
@@ -73,5 +100,10 @@ export default defineConfig([
 			"import.meta.url": "module.filename",
 			"import.meta": "{}",
 		},
+		// Same reason as the esm pass: the node target opens every CJS entry with
+		// `require("node:module")` for a shim nothing calls, which a bundler
+		// resolving the "require" condition for the browser then has to polyfill
+		// or fail on.
+		target: "browser",
 	},
 ]);

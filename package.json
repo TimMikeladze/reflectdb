@@ -271,6 +271,6 @@
 		"pre-commit": "bun run lint && bun run type-check"
 	},
 	"engines": {
-		"node": ">=22"
+		"node": ">=22.3"
 	}
 }
