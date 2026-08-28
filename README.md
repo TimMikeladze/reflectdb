@@ -1048,11 +1048,11 @@ board costing something.
 | Bundling the API routes so Vercel's Node builder never sees a `.ts` specifier | [`scripts/build-kanban.ts`](./scripts/build-kanban.ts) / [`vercel.json`](./vercel.json) |
 
 Deploy from the repository root rather than the example directory — the example
-imports reflectdb from `src/`, and the root `vercel.json` bundles the two API
-routes before Vercel's function build. Pushing to `main` does it; the demo's
-Vercel project is linked to this repository at the repository root. The variables to set, and the one extra
-`storage.init()` step MinIO needs, are in
-[`examples/kanban/README.md`](./examples/kanban/README.md).
+imports reflectdb from `src/`, and the root `vercel.json` runs a build that
+bundles the two API routes into `.vercel/output` itself. Pushing to `main` does
+it; the demo's Vercel project is linked to this repository at the repository
+root. The variables to set, and the one extra `storage.init()` step MinIO needs,
+are in [`examples/kanban/README.md`](./examples/kanban/README.md).
 
 ## Architecture
 

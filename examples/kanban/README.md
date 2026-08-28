@@ -107,11 +107,11 @@ it, and both are visible in the root `vercel.json`:
 - The example imports reflectdb from `src/`, so the deploy context has to
   include it — deploying this folder alone uploads 17 files and the build fails
   on a missing import.
-- `scripts/build-kanban.ts` **bundles** the two API routes into `api/sync/*.js`
-  before Vercel's function build. reflectdb's source imports carry explicit
-  `.ts` extensions, and Vercel's Node builder rewrites the entry file to `.js`
-  without rewriting those specifiers — the function then boots and dies on
-  `ERR_MODULE_NOT_FOUND`. Bundling resolves everything ahead of time.
+- `scripts/build-kanban.ts` **bundles** the two API routes into functions
+  itself. reflectdb's source imports carry explicit `.ts` extensions, and
+  Vercel's Node builder rewrites the entry file to `.js` without rewriting those
+  specifiers — the function then boots and dies on `ERR_MODULE_NOT_FOUND`.
+  Bundling resolves everything ahead of time.
 
 The Vercel project is linked to this repository with its Root Directory left at
 the repository root, so a push to `main` deploys the demo; `vercel deploy` is
@@ -124,10 +124,21 @@ Directory wins over the repository-root one. Deleting `landing/vercel.json`
 would point the landing build at `scripts/build-kanban.ts`, which is not on
 disk from there, and every landing deploy would fail.
 
-`api/` is generated and gitignored, so it does not exist when Vercel parses
-`vercel.json`. Naming those routes in a `functions` block fails the build before
-the bundle is written; the SSE route's 300-second `maxDuration` comes from its
-own `export const config` instead, which survives bundling.
+The build writes the [Build Output API](https://vercel.com/docs/build-output-api)
+(`.vercel/output`) rather than dropping bundles in `api/`, because Vercel
+enumerates `api/` from the *source tree*, before the build command runs.
+Bundles written there during the build are invisible to it: the deploy goes
+green and every route 404s. Emitting `.vercel/output/functions/**.func`
+ourselves also carries the settings a `functions` block in `vercel.json` cannot
+— that block is validated against the same pre-build source tree — including
+the SSE route's 300-second `maxDuration` and `supportsResponseStreaming`,
+without which the platform holds every event until the stream ends.
+
+Each function's `index.mjs` wraps the route in a Node `(req, res)` adapter: the
+routes are written against web `Request`/`Response`, which is what Vercel's own
+`api/` builder hands them, and the raw launcher is not. The adapter flushes the
+response headers before the first event and destroys the body stream when the
+client disconnects — that is what the SSE route's `cancel` hook listens for.
 
 New Vercel projects also enable Deployment Protection, which 401s the API. Turn
 it off for a public demo.
