@@ -28,4 +28,7 @@ CLAUDE.md
 AGENTS.md
 .vercel
 .env*
-api/
+# The bundles scripts/build-kanban.ts writes for Vercel, at the repository root
+# only. Anchored: a bare `api/` also swallowed examples/kanban/api, whose route
+# sources are the input to that build and have to be committed.
+/api/
