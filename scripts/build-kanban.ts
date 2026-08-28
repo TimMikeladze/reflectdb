@@ -17,6 +17,12 @@
  * its own `landing/vercel.json`. A `vercel.json` inside a project's Root
  * Directory wins over the one at the repository root; without it, the landing
  * build inherits this file's buildCommand and dies on a missing script.
+ *
+ * `api/` is generated, gitignored, and therefore absent when Vercel parses
+ * `vercel.json` — a `functions` glob naming these routes fails the build
+ * outright ("doesn't match any Serverless Functions inside the `api`
+ * directory") before this script ever runs. Per-route settings live in each
+ * route's own `export const config`, which the bundle carries through.
  */
 
 import { mkdir, rm } from "node:fs/promises";

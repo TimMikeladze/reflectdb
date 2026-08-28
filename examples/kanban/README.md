@@ -124,6 +124,11 @@ Directory wins over the repository-root one. Deleting `landing/vercel.json`
 would point the landing build at `scripts/build-kanban.ts`, which is not on
 disk from there, and every landing deploy would fail.
 
+`api/` is generated and gitignored, so it does not exist when Vercel parses
+`vercel.json`. Naming those routes in a `functions` block fails the build before
+the bundle is written; the SSE route's 300-second `maxDuration` comes from its
+own `export const config` instead, which survives bundling.
+
 New Vercel projects also enable Deployment Protection, which 401s the API. Turn
 it off for a public demo.
 
