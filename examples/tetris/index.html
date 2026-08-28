@@ -47,6 +47,17 @@
 		/>
 
 		<meta name="theme-color" content="#08090d" />
+		<script>
+			// Applies a pinned theme BEFORE first paint. Running this in the body,
+			// or from the bundle, would show one frame of the wrong colours on
+			// every load — the flash is the whole reason it is inline and here.
+			try {
+				var t = localStorage.getItem("reflectdb-theme");
+				if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+			} catch (e) {
+				/* private mode; the OS preference still applies */
+			}
+		</script>
 		<style>
 			* {
 				box-sizing: border-box;
@@ -63,6 +74,144 @@
 				--accent: #b8ff63;
 				--danger: #ff647c;
 				--mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+				--field-1: #191c28;
+				--field-2: #0c0d13;
+				--field-3: #0b0c11;
+				--raised: #20222d;
+				--raised-line: #363946;
+				--shadow-drop: #0009;
+				--shadow-inset: #0008;
+				--cell-line: #ffffff28;
+				--cell-inset: #ffffff0d;
+				--cell-active: #ffffff35;
+				--cell-glow: #ffffff25;
+				--cell-strong: #ffffff3d;
+				--scrim: #0b0c12cc;
+				--faint: #5f6370;
+				--input-line: #30333f;
+				--input-bg: #11131a;
+				--row-bg: #171a20;
+				--rule: #292b35;
+				--ok-line: #445e2d;
+				--danger-line: #61303a;
+				--accent-line: #455b2e;
+				--toggle-bg: #101118;
+				--toggle-line: #242631;
+				--toggle-fg: #8a8e9d;
+				--toggle-hover: #f1f2f6;
+			}
+
+			/*
+			 * Light palette. Dark stays the default — the well is the focus and a
+			 * dark surround keeps it that way — so light is derived from it rather
+			 * than invented, and every chrome colour goes through a token so the
+			 * two themes cannot drift. The seven piece colours are deliberately
+			 * NOT themed: they are game state, and re-mapping them would change
+			 * what a player reads off the board.
+			 */
+			@media (prefers-color-scheme: light) {
+				:root:not([data-theme="dark"]) {
+				--bg: #f6f7f9;
+				--panel: #ffffff;
+				--well: #eef0f4;
+				--line: #d8dbe3;
+				--fg: #14151a;
+				--muted: #5f6472;
+				--accent: #3f7d12;
+				--danger: #c22745;
+				--field-1: #ffffff;
+				--field-2: #eef1f6;
+				--field-3: #e9ecf2;
+				--raised: #ffffff;
+				--raised-line: #d3d7e0;
+				--shadow-drop: #1416201f;
+				--shadow-inset: #14162010;
+				/* Dark hairlines on a light ground: the dark theme's white overlays
+				   are invisible here, so the cell grid inverts rather than fades. */
+				--cell-line: #14162033;
+				--cell-inset: #1416200a;
+				--cell-active: #14162040;
+				--cell-glow: #14162014;
+				--cell-strong: #14162055;
+				--scrim: #f6f7f9d9;
+				--faint: #7b8090;
+				--input-line: #d3d7e0;
+				--input-bg: #ffffff;
+				--row-bg: #f0f2f6;
+				--rule: #e3e6ec;
+				--ok-line: #a8cf86;
+				--danger-line: #e8a3b0;
+				--accent-line: #a8cf86;
+				--toggle-bg: #ffffff;
+				--toggle-line: #d8dbe3;
+				--toggle-fg: #5f6472;
+				--toggle-hover: #14151a;
+				}
+			}
+
+			:root[data-theme="light"] {
+				--bg: #f6f7f9;
+				--panel: #ffffff;
+				--well: #eef0f4;
+				--line: #d8dbe3;
+				--fg: #14151a;
+				--muted: #5f6472;
+				--accent: #3f7d12;
+				--danger: #c22745;
+				--field-1: #ffffff;
+				--field-2: #eef1f6;
+				--field-3: #e9ecf2;
+				--raised: #ffffff;
+				--raised-line: #d3d7e0;
+				--shadow-drop: #1416201f;
+				--shadow-inset: #14162010;
+				/* Dark hairlines on a light ground: the dark theme's white overlays
+				   are invisible here, so the cell grid inverts rather than fades. */
+				--cell-line: #14162033;
+				--cell-inset: #1416200a;
+				--cell-active: #14162040;
+				--cell-glow: #14162014;
+				--cell-strong: #14162055;
+				--scrim: #f6f7f9d9;
+				--faint: #7b8090;
+				--input-line: #d3d7e0;
+				--input-bg: #ffffff;
+				--row-bg: #f0f2f6;
+				--rule: #e3e6ec;
+				--ok-line: #a8cf86;
+				--danger-line: #e8a3b0;
+				--accent-line: #a8cf86;
+				--toggle-bg: #ffffff;
+				--toggle-line: #d8dbe3;
+				--toggle-fg: #5f6472;
+				--toggle-hover: #14151a;
+			}
+
+			#theme-toggle {
+				position: fixed;
+				top: 12px;
+				right: 12px;
+				z-index: 999;
+				width: 30px;
+				height: 30px;
+				display: grid;
+				place-items: center;
+				border-radius: 999px;
+				border: 1px solid var(--toggle-line);
+				background: var(--toggle-bg);
+				color: var(--toggle-fg);
+				cursor: pointer;
+				padding: 0;
+			}
+
+			#theme-toggle:hover {
+				color: var(--toggle-hover);
+				border-color: var(--toggle-hover);
+			}
+
+			#theme-toggle:focus-visible {
+				outline: 2px solid var(--toggle-hover);
+				outline-offset: 2px;
 			}
 			html,
 			body,
@@ -92,8 +241,8 @@
 				flex-direction: column;
 				align-items: center;
 				background:
-					radial-gradient(circle at 48% 42%, #191c28 0, #0c0d13 36%, transparent 68%),
-					linear-gradient(135deg, #0b0c11, #08090d);
+					radial-gradient(circle at 48% 42%, var(--field-1) 0, var(--field-2) 36%, transparent 68%),
+					linear-gradient(135deg, var(--field-3), var(--bg));
 			}
 			.game-heading {
 				width: min(100%, 620px);
@@ -125,11 +274,11 @@
 			}
 			.status.synced {
 				color: var(--accent);
-				border-color: #445e2d;
+				border-color: var(--ok-line);
 			}
 			.status.disconnected {
 				color: var(--danger);
-				border-color: #61303a;
+				border-color: var(--danger-line);
 			}
 			.play-layout {
 				display: flex;
@@ -148,11 +297,11 @@
 				grid-template-rows: repeat(20, 1fr);
 				gap: 1px;
 				padding: 5px;
-				background: #20222d;
-				border: 1px solid #363946;
+				background: var(--raised);
+				border: 1px solid var(--raised-line);
 				box-shadow:
-					0 26px 70px #0009,
-					inset 0 0 30px #0008;
+					0 26px 70px var(--shadow-drop),
+					inset 0 0 30px var(--shadow-inset);
 			}
 			.cell {
 				min-width: 0;
@@ -161,8 +310,8 @@
 				border-radius: 1px;
 			}
 			.cell[class*="piece-"]:not(.piece-0) {
-				border: 1px solid #ffffff28;
-				box-shadow: inset 0 0 0 2px #ffffff0d;
+				border: 1px solid var(--cell-line);
+				box-shadow: inset 0 0 0 2px var(--cell-inset);
 			}
 			.piece-1 {
 				background: #36d9ff;
@@ -188,12 +337,12 @@
 			.cell.active {
 				filter: brightness(1.18);
 				box-shadow:
-					inset 0 0 0 2px #ffffff35,
-					0 0 8px #ffffff25;
+					inset 0 0 0 2px var(--cell-active),
+					0 0 8px var(--cell-glow);
 			}
 			.cell.ghost {
 				background: transparent;
-				border: 1px solid #ffffff3d !important;
+				border: 1px solid var(--cell-strong) !important;
 				box-shadow: none !important;
 			}
 			.overlay {
@@ -215,7 +364,7 @@
 			.identity,
 			.stat,
 			.next-card {
-				background: #0b0c12cc;
+				background: var(--scrim);
 				border: 1px solid var(--line);
 				border-radius: 6px;
 				padding: 10px 12px;
@@ -270,7 +419,7 @@
 				border-radius: 2px;
 			}
 			.death-note {
-				color: #626676;
+				color: var(--faint);
 				font-size: 10px;
 				line-height: 1.5;
 				padding: 2px;
@@ -284,8 +433,8 @@
 			}
 			.controls button,
 			footer button {
-				border: 1px solid #30333f;
-				background: #11131a;
+				border: 1px solid var(--input-line);
+				background: var(--input-bg);
 				border-radius: 5px;
 				padding: 10px 8px;
 				cursor: pointer;
@@ -294,7 +443,7 @@
 			.controls button:hover:not(:disabled),
 			footer button:hover {
 				border-color: var(--accent);
-				background: #171a20;
+				background: var(--row-bg);
 			}
 			.controls button:active:not(:disabled) {
 				transform: translateY(1px);
@@ -305,7 +454,7 @@
 			}
 			.controls p {
 				grid-column: 1 / -1;
-				color: #5e6270;
+				color: var(--faint);
 				text-align: center;
 				font-size: 9px;
 				margin-top: 3px;
@@ -372,7 +521,7 @@
 				width: 100%;
 				padding: 2px;
 				gap: 0;
-				border-color: #292b35;
+				border-color: var(--rule);
 				box-shadow: none;
 			}
 			.tetris-board.mini .cell {
@@ -383,7 +532,7 @@
 			.nobody {
 				grid-column: 1 / -1;
 				align-self: center;
-				color: #5f6370;
+				color: var(--faint);
 				font-size: 10px;
 				line-height: 1.5;
 				text-align: center;
@@ -410,16 +559,16 @@
 				min-width: 0;
 				border: 1px solid transparent;
 				border-radius: 4px;
-				background: #0b0c11;
+				background: var(--field-3);
 				padding: 6px 7px;
 				font-size: 10px;
 			}
 			.standings li.self {
-				border-color: #455b2e;
+				border-color: var(--accent-line);
 			}
 			.standings .rank {
 				width: 14px;
-				color: #5f6270;
+				color: var(--faint);
 				text-align: right;
 			}
 			.standings i {
@@ -454,7 +603,7 @@
 				padding: 8px;
 			}
 			.community footer p {
-				color: #5f6370;
+				color: var(--faint);
 				font-size: 9px;
 				line-height: 1.5;
 			}
@@ -518,5 +667,48 @@
 	<body>
 		<div id="root"></div>
 		<script type="module" src="./render.tsx"></script>
+		<button id="theme-toggle" type="button" aria-label="Switch theme"></button>
+		<script>
+			// Three states: nothing pinned follows the OS, an explicit pick writes
+			// data-theme plus localStorage. The icon shows where a click GOES —
+			// a sun while dark — not where you currently are.
+			(function () {
+				var SUN =
+					'<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="3.1"/><path d="M8 1.2v1.6M8 13.2v1.6M14.8 8h-1.6M2.8 8H1.2M12.8 3.2l-1.1 1.1M4.3 11.7l-1.1 1.1M12.8 12.8l-1.1-1.1M4.3 4.3 3.2 3.2"/></g></svg>';
+				var MOON =
+					'<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M13.7 10.1A5.9 5.9 0 0 1 6.2 2.5a6.5 6.5 0 1 0 7.5 7.6Z"/></svg>';
+				var button = document.getElementById("theme-toggle");
+				if (!button) return;
+				var root = document.documentElement;
+				var media = window.matchMedia("(prefers-color-scheme: dark)");
+
+				function resolve() {
+					var pinned = root.dataset.theme;
+					if (pinned === "light" || pinned === "dark") return pinned;
+					return media.matches ? "dark" : "light";
+				}
+				function paint(theme) {
+					var next = theme === "dark" ? "light" : "dark";
+					button.innerHTML = theme === "dark" ? SUN : MOON;
+					button.setAttribute("aria-label", "Switch to " + next + " theme");
+					button.setAttribute("title", "Switch to " + next + " theme");
+				}
+				paint(resolve());
+				button.addEventListener("click", function () {
+					var next = resolve() === "dark" ? "light" : "dark";
+					root.dataset.theme = next;
+					try {
+						localStorage.setItem("reflectdb-theme", next);
+					} catch (e) {
+						/* pick still holds for this page */
+					}
+					paint(next);
+				});
+				// Until something is pinned the OS is in charge, so follow it.
+				media.addEventListener("change", function () {
+					if (!root.dataset.theme) paint(resolve());
+				});
+			})();
+		</script>
 	</body>
 </html>

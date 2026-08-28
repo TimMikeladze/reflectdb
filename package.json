@@ -212,6 +212,16 @@
 				"default": "./dist/cjs/server/ephemeral/redis.cjs"
 			}
 		},
+		"./server/storage/object": {
+			"import": {
+				"types": "./dist/server/storage/object/index.d.ts",
+				"default": "./dist/server/storage/object/index.js"
+			},
+			"require": {
+				"types": "./dist/cjs/server/storage/object/index.d.cts",
+				"default": "./dist/cjs/server/storage/object/index.cjs"
+			}
+		},
 		"./package.json": "./package.json"
 	},
 	"publishConfig": {

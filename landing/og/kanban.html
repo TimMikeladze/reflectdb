@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<title>reflectdb kanban — social card</title>
+		<link rel="stylesheet" href="./card.css" />
+		<style>
+			/* Source for public/og-kanban.png — the card the Vercel demo unfurls with.
+         The site palette rather than a demo-specific one: unlike Tetris and the
+         whiteboard, this board already renders in reflectdb's own colours. */
+			html,
+			body,
+			.card {
+				width: 1200px;
+				height: 630px;
+			}
+			.card {
+				display: flex;
+				flex-direction: column;
+				padding: 54px 60px;
+			}
+
+			.split {
+				flex: 1;
+				display: grid;
+				grid-template-columns: 1fr 420px;
+				gap: 48px;
+				align-items: center;
+				padding: 16px 0;
+			}
+			.left h1 {
+				font-size: 52px;
+				max-width: 14ch;
+			}
+			.left .sub {
+				font-size: 20px;
+				max-width: 38ch;
+			}
+
+			.foot {
+				display: flex;
+				align-items: center;
+				gap: 16px;
+			}
+			.foot .chips {
+				margin-left: auto;
+			}
+
+			/* The board and the two keys one drag produces, stacked — the same pair
+         the landing page's demo panel shows. Flat fills only: a screenshot of
+         the real board would not survive being shrunk to a 200px thumbnail. */
+			.stack {
+				justify-self: end;
+				display: grid;
+				gap: 12px;
+				width: 420px;
+			}
+
+			.board {
+				display: grid;
+				grid-template-columns: repeat(3, 1fr);
+				gap: 10px;
+				padding: 14px;
+				border: 1px solid var(--line-2);
+				border-radius: 12px;
+				background: var(--bg-2);
+			}
+			.col {
+				display: grid;
+				gap: 8px;
+				align-content: start;
+				min-height: 190px;
+				padding: 12px 10px;
+				border: 1px solid var(--line);
+				border-radius: 8px;
+				background: var(--bg);
+			}
+			.col b {
+				font-size: 14px;
+				font-weight: 400;
+				letter-spacing: 0.14em;
+				text-transform: uppercase;
+				color: var(--muted);
+			}
+			.col i {
+				display: block;
+				height: 26px;
+				border: 1px solid var(--line-2);
+				border-radius: 5px;
+				background: var(--bg-3);
+			}
+			/* The card in flight — the write the keys underneath are recording. */
+			.col i.hot {
+				border-color: var(--accent);
+				background: rgba(125, 249, 163, 0.16);
+			}
+
+			.key {
+				display: flex;
+				align-items: center;
+				gap: 12px;
+				padding: 12px 16px;
+				border: 1px solid var(--line);
+				border-radius: 8px;
+				background: var(--bg-2);
+				font-size: 17px;
+				color: var(--muted);
+				white-space: nowrap;
+			}
+			.key em {
+				font-style: normal;
+				font-size: 14px;
+				letter-spacing: 0.12em;
+				color: var(--fg);
+				opacity: 0.55;
+			}
+			.key small {
+				margin-left: auto;
+				font-size: 15px;
+			}
+			.key.ok,
+			.key.ok em {
+				color: var(--accent);
+				opacity: 1;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="card">
+			<div class="brand">
+				<span class="mark"><span></span></span>
+				reflectdb
+				<span class="url">reflectdb-kanban.vercel.app</span>
+			</div>
+
+			<div class="split">
+				<div class="left">
+					<div class="eyebrow"><span class="dot"></span>live demo · no database</div>
+					<h1>A board with <span class="accent">no database</span></h1>
+					<p class="sub">
+						Every card, every op and the log itself live in an
+						<span class="k">S3 bucket</span> — no Postgres, no SQLite, no volume — on serverless
+						functions that keep nothing between requests.
+					</p>
+				</div>
+
+				<div class="stack">
+					<div class="board">
+						<div class="col">
+							<b>todo</b>
+							<i></i><i></i><i></i>
+						</div>
+						<div class="col">
+							<b>doing</b>
+							<i class="hot"></i>
+						</div>
+						<div class="col">
+							<b>done</b>
+							<i></i><i></i>
+						</div>
+					</div>
+					<div class="key"><em>PUT</em>wal/writer-a-7.jsonl<small>3 ops</small></div>
+					<div class="key ok"><em>CAS</em>_manifest<small>commitSeq 41 ✓</small></div>
+				</div>
+			</div>
+
+			<div class="foot">
+				<div class="install"><span class="prompt">$</span>bun add reflectdb</div>
+				<div class="chips">
+					<span>object storage</span><span>optimistic concurrency</span><span>serverless sse</span>
+				</div>
+			</div>
+		</div>
+	</body>
+</html>

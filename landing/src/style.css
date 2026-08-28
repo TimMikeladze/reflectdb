@@ -505,9 +505,27 @@ section {
 	stroke: var(--accent);
 }
 
+.mini-board rect {
+	fill: none;
+	stroke: var(--line);
+	stroke-width: 1;
+}
+
+.mini-card rect {
+	fill: var(--tint);
+	stroke: var(--line);
+	stroke-width: 1;
+}
+
+/* The card in flight, matching the one the demo panel animates further down. */
+.mini-card.moving rect {
+	fill: color-mix(in srgb, var(--accent) 22%, transparent);
+	stroke: var(--accent);
+}
+
 /* One column below the point where 240px of tiles stops leaving the headline
    a readable measure. The tiles stay — they are the page's best argument —
-   but they run as a row of three. */
+   but they wrap into rows instead of a column. */
 @media (max-width: 860px) {
 	#hero {
 		grid-template-columns: 1fr;
@@ -521,8 +539,7 @@ section {
 }
 
 /* Two tiles across leaves the label about 70px, which wraps every one of them
-   to four lines and strands the third on its own row. One column reads better
-   than three cramped ones. */
+   to four lines. One column reads better than a grid of cramped ones. */
 @media (max-width: 640px) {
 	.hero-minis {
 		grid-template-columns: 1fr;
@@ -1676,5 +1693,107 @@ footer a:hover {
 	}
 	h1 {
 		font-size: 26px;
+	}
+}
+
+/* ── kanban demo preview ──────────────────────────────────────────────── */
+
+/*
+ * Taller than the shared `.demo-board svg` cap: this preview carries two lines
+ * of key names under the board, and letterboxing a 168px box would shrink the
+ * whole thing to fit them.
+ */
+.demo-board .kanban-svg {
+	/* The shared 168px cap is sized for previews that share the panel with chat
+	   or a HUD. This one is the whole panel, so let it use the height — it is
+	   `flex: 1`, so lifting the cap is what fills the space above the footer. */
+	max-height: none;
+}
+
+.kanban-col rect {
+	fill: none;
+	stroke: var(--line);
+	stroke-width: 1.5;
+}
+
+.kanban-label text {
+	font-family: var(--mono);
+	font-size: 8px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	fill: var(--muted);
+}
+
+.kanban-card rect {
+	fill: var(--tint);
+	stroke: var(--line);
+	stroke-width: 1.5;
+}
+
+/* The one card in flight — the write the keys underneath are recording. */
+.kanban-card.moving rect {
+	fill: color-mix(in srgb, var(--accent) 16%, transparent);
+	stroke: var(--accent);
+	animation: kanban-drift 3.2s ease-in-out infinite;
+}
+
+@keyframes kanban-drift {
+	0%,
+	100% {
+		transform: translateY(0);
+	}
+	50% {
+		transform: translateY(32px);
+	}
+}
+
+/*
+ * The keys each write produces, mirroring the durability strip in the real app.
+ * Deliberately below the board rather than inside the SVG: an SVG cannot stretch
+ * past its own aspect ratio, so this both fills the panel and stays legible at
+ * any width.
+ */
+.kanban-keys {
+	display: grid;
+	gap: 6px;
+}
+
+.kanban-key {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	font-family: var(--mono);
+	font-size: 11px;
+	color: var(--muted);
+	background: var(--bg-2);
+	border-radius: 4px;
+	padding: 7px 10px;
+}
+
+.kanban-key em {
+	font-style: normal;
+	font-size: 9px;
+	letter-spacing: 0.1em;
+	color: var(--fg);
+	opacity: 0.55;
+}
+
+.kanban-key small {
+	margin-left: auto;
+	font-size: 10px;
+}
+
+.kanban-key.committed {
+	color: var(--accent);
+}
+
+.kanban-key.committed em {
+	color: var(--accent);
+	opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.kanban-card.moving rect {
+		animation: none;
 	}
 }

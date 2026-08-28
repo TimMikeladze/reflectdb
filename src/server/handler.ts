@@ -273,6 +273,30 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 	private storage: StorageAdapter | null = null;
 	private minSchemaVersion = 0;
 	private messageQueues = new Map<string, Promise<void>>();
+
+	/**
+	 * Resolves once every message queued for `clientId` has finished processing.
+	 *
+	 * Messages are handled on a per-client serial queue, and `onMessage` returns
+	 * before that work settles — fine for a long-lived connection, where replies
+	 * stream out whenever they are ready. A serverless HTTP handler has no such
+	 * luxury: it must know when the replies to the request it is holding exist,
+	 * or it returns an empty body and the client hangs. See the SSE transport's
+	 * `serverless` mode.
+	 *
+	 * Never rejects: a failed message is the caller's concern via its own reply,
+	 * not this barrier's.
+	 */
+	async whenIdle(clientId: string): Promise<void> {
+		// Re-read between awaits: handling one message can enqueue the next, so a
+		// single await can settle on a queue that has already been superseded.
+		for (let i = 0; i < 100; i++) {
+			const queue = this.messageQueues.get(clientId);
+			if (!queue) return;
+			await queue.catch(() => undefined);
+			if (this.messageQueues.get(clientId) === queue) return;
+		}
+	}
 	private resultCache = new ResultCache();
 	private broadcast: BroadcastEngine<TAuth>;
 	private ops: OpProcessor<TAuth>;

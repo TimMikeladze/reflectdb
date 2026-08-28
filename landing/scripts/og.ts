@@ -39,6 +39,7 @@ const CARDS: Card[] = [
 	{ source: "index.html", out: "og.png", width: 1200, height: 630 },
 	{ source: "tetris.html", out: "og-tetris.png", width: 1200, height: 630 },
 	{ source: "whiteboard.html", out: "og-whiteboard.png", width: 1200, height: 630 },
+	{ source: "kanban.html", out: "og-kanban.png", width: 1200, height: 630 },
 	{ source: "github.html", out: "og-github.png", width: 1280, height: 640 },
 ];
 

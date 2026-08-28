@@ -345,6 +345,29 @@ createSyncServer({
 });
 // an idle tick is one MAX(hlc) query and no broadcast`;
 
+export const F_OBJECT = `import { createObjectStorage } from "reflectdb/server/storage/object";
+
+const storage = createObjectStorage({
+  store: { provider: "tigris", bucket, credentials },
+  roomId: "board-42",   // one room per adapter; also the key prefix
+});
+
+// rows live in memory; the bucket is durability, never the read path
+// one PUT per batch, then one CAS — an idle room costs nothing
+process.on("SIGTERM", () => storage.close());`;
+
+export const F_SERVERLESS = `// no lease — instances race on the manifest CAS, loser retries
+createObjectStorage({ store, roomId, concurrency: "optimistic" });
+
+// SSE replies ride back on the POST that produced them
+const messages = await sse.collectReplies(id, msg, () =>
+  handler.whenIdle(id),
+);
+return Response.json({ messages });
+
+// the held stream carries only OTHER clients' changes:
+// storage.refresh() → handler.pollRemoteChanges()`;
+
 export const F_LOOP = `server.interval(500, () =>
   server.lock("tick", async () => {  // never outruns itself
     const ended = await expireRounds();
@@ -406,7 +429,10 @@ const sse = createSseServerTransport({ replayBufferSize: 256 });
 // GET  /sync/events/:id
 //   → new Response(sse.createEventStream(id, lastEventId))
 // POST /sync/messages/:id
-//   → sse.handleMessage(id, await req.json())`;
+//   → sse.handleMessage(id, await req.json())
+
+// serverless: true answers each POST with its own replies,
+// for platforms where the stream is a different invocation`;
 
 export const T_POLL = `import { createPollingServerTransport } from "reflectdb/transport/polling";
 
@@ -468,6 +494,7 @@ export const STORAGE = `// server op log
 createSyncServer({ /* no storage */ });    // in-memory
 createSqliteStorage({ path: "sync.db" });  // bun:sqlite
 createPostgresStorage(pool);               // multi-node HA
+createObjectStorage({ store, roomId });    // an S3 bucket, no db
 
 // browser
 createMemoryStorage();                     // tests, SSR

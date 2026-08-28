@@ -6,6 +6,7 @@ import * as S from "./snippets.ts";
 const REPO = "https://github.com/TimMikeladze/reflectdb";
 const TETRIS_DEMO = "https://reflectdb-tetris.fly.dev/";
 const WHITEBOARD_DEMO = "https://reflectdb-whiteboard.fly.dev/";
+const KANBAN_DEMO = "https://reflectdb-kanban.vercel.app/";
 const PRESENCE_SERVICE = `${REPO}/tree/main/services/presence`;
 
 /**
@@ -159,6 +160,16 @@ const FEATURE_CARDS: Card[] = [
 		src: S.F_HA,
 	},
 	{
+		title: "No database at all",
+		desc: "Run a room on an S3-compatible bucket — no Postgres, no SQLite, no volume. State is authoritative in memory; the bucket is durability.",
+		src: S.F_OBJECT,
+	},
+	{
+		title: "Runs serverless",
+		desc: "Drop the writer lease, race on a compare-and-swap, and answer each POST with the replies it produced. Vercel, Lambda or Workers.",
+		src: S.F_SERVERLESS,
+	},
+	{
 		title: "Server-driven state",
 		desc: "Timers, expiry, round rotation — anything that advances without user input. Locks keep a tick from outrunning itself.",
 		src: S.F_LOOP,
@@ -240,7 +251,7 @@ export function renderApp(root: HTMLElement): void {
         </div>
       </div>
 
-      <!-- The same three demos the page ends up arguing for, at a glance. Each
+      <!-- The same four demos the page ends up arguing for, at a glance. Each
            is a static miniature rather than a running instance: the hero must
            paint immediately, and the live one is a screenful away in #demos. -->
       <div class="hero-minis">
@@ -290,6 +301,25 @@ export function renderApp(root: HTMLElement): void {
             </g>
           </svg>
           <span class="hero-mini-label"><strong>whiteboard</strong><em>draw together, guess in chat</em></span>
+        </a>
+
+        <a class="hero-mini" href="${KANBAN_DEMO}">
+          <svg viewBox="0 0 96 52" aria-hidden="true">
+            <g class="mini-board">
+              <rect x="5" y="6" width="27" height="40" rx="2" />
+              <rect x="34.5" y="6" width="27" height="40" rx="2" />
+              <rect x="64" y="6" width="27" height="40" rx="2" />
+            </g>
+            <g class="mini-card">
+              <rect x="9" y="11" width="19" height="7" rx="1.5" />
+              <rect x="9" y="22" width="19" height="7" rx="1.5" />
+              <rect x="68" y="11" width="19" height="7" rx="1.5" />
+            </g>
+            <g class="mini-card moving">
+              <rect x="38.5" y="11" width="19" height="7" rx="1.5" />
+            </g>
+          </svg>
+          <span class="hero-mini-label"><strong>kanban</strong><em>no database, just a bucket</em></span>
         </a>
       </div>
     </section>
@@ -347,7 +377,7 @@ export function renderApp(root: HTMLElement): void {
           <div class="demo-status"><span></span>deployed on Vercel · running right now</div>
           <h4>Presence, live on this page</h4>
           <p>
-            The two demos below are somewhere else. This one is here: the panel is connected
+            The three demos below are somewhere else. This one is here: the panel is connected
             to the public presence service, publishing your pointer and drawing everyone
             else's. Open this page in a second tab and the two see each other.
           </p>
@@ -521,6 +551,66 @@ export function renderApp(root: HTMLElement): void {
           <div class="demo-preview-footer"><span>draw together · guess in chat</span><strong>open →</strong></div>
         </a>
       </article>
+
+      <article class="demo-feature">
+        <div class="demo-copy">
+          <div class="demo-status"><span></span>deployed on vercel · tigris bucket · no database</div>
+          <h4>Multiplayer kanban</h4>
+          <p>
+            A shared board with no database behind it. Every card, every op and the log itself
+            live in object storage — no Postgres, no SQLite, no volume — on serverless functions
+            that keep nothing between requests.
+          </p>
+          <ul class="demo-facts">
+            <li>state is authoritative in memory; the bucket is durability</li>
+            <li>no writer lease — instances race on a compare-and-swap and retry</li>
+            <li>one PUT per batch, self-clocking; an idle board costs nothing</li>
+            <li>works on S3, R2, Tigris, MinIO or GCS</li>
+          </ul>
+          <div class="demo-actions">
+            <a class="btn primary" href="${KANBAN_DEMO}">open the demo →</a>
+            <a class="btn" href="${REPO}/tree/main/examples/kanban">view source</a>
+          </div>
+          <p class="demo-hint">Open two tabs to drag cards against yourself. Deploy your own with <code>vercel deploy</code> and a bucket.</p>
+        </div>
+
+        <a class="demo-preview" href="${KANBAN_DEMO}" aria-label="Open the multiplayer kanban demo">
+          <div class="demo-chrome">
+            <span class="demo-chrome-dot"></span>
+            <span>reflectdb-kanban.vercel.app</span>
+            <span class="demo-synced">durable</span>
+          </div>
+          <div class="demo-board">
+            <svg class="kanban-svg" viewBox="0 0 420 180" role="img" aria-label="A kanban board with three columns, one card moving between them, and the object-storage keys each write produces">
+              <g class="kanban-col">
+                <rect x="8" y="8" width="124" height="164" rx="8" />
+                <rect x="148" y="8" width="124" height="164" rx="8" />
+                <rect x="288" y="8" width="124" height="164" rx="8" />
+              </g>
+              <g class="kanban-label">
+                <text x="20" y="27">todo</text>
+                <text x="160" y="27">doing</text>
+                <text x="300" y="27">done</text>
+              </g>
+              <g class="kanban-card">
+                <rect x="20" y="38" width="100" height="26" rx="5" />
+                <rect x="20" y="72" width="100" height="26" rx="5" />
+                <rect x="20" y="106" width="100" height="26" rx="5" />
+                <rect x="300" y="38" width="100" height="26" rx="5" />
+                <rect x="300" y="72" width="100" height="26" rx="5" />
+              </g>
+              <g class="kanban-card moving">
+                <rect x="160" y="38" width="100" height="26" rx="5" />
+              </g>
+            </svg>
+            <div class="kanban-keys">
+              <span class="kanban-key"><em>PUT</em>wal/writer-a-7.jsonl<small>1 batch · 3 ops</small></span>
+              <span class="kanban-key committed"><em>CAS</em>_manifest<small>commitSeq 41 ✓</small></span>
+            </div>
+          </div>
+          <div class="demo-preview-footer"><span>one bucket · zero servers</span><strong>open →</strong></div>
+        </a>
+      </article>
     `,
 		)}
 
@@ -649,6 +739,24 @@ export function renderApp(root: HTMLElement): void {
         </p>
       </div>
 
+      <h3 class="sub">Or no database at all</h3>
+      ${fig(
+				D.objectStorage,
+				"Swap the op log for a bucket and the read path never changes — it was already memory.",
+			)}
+      <div class="grid-2">
+        ${code("server.ts", S.F_OBJECT)}
+        <p class="note">
+          <code>createObjectStorage</code> makes an S3-compatible bucket the only durable
+          store — AWS, R2, Tigris, MinIO or GCS. Reads never leave the process, writes
+          group-commit one object per batch, and the flush loop is self-clocking, so there is
+          no interval to tune and an idle room issues nothing at all. The trade is one writer
+          per room, so route a room to one instance — or drop the lease with
+          <code>concurrency: "optimistic"</code>, let instances race on the manifest CAS, and
+          call <code>refresh()</code> before a read that has to be current.
+        </p>
+      </div>
+
       <h3 class="sub">Broadcast modes</h3>
       ${fig(D.broadcastModes, "Consistent re-reads your database and diffs. Eager forwards the row it already has.")}
       ${code("server.ts", S.EAGER)}
@@ -687,7 +795,7 @@ export function renderApp(root: HTMLElement): void {
           <thead><tr><th>transport</th><th>shape</th><th>reach for it when</th></tr></thead>
           <tbody>
             <tr><td>websocket</td><td>bi-directional frames, heartbeat, backpressure ceiling</td><td>the default</td></tr>
-            <tr><td>sse</td><td>event-stream down, POST back-channel up, Last-Event-ID replay</td><td>proxies that mangle upgrades</td></tr>
+            <tr><td>sse</td><td>event-stream down, POST back-channel up, Last-Event-ID replay</td><td>proxies that mangle upgrades — and serverless, in <code>serverless</code> mode</td></tr>
             <tr><td>polling</td><td>three plain HTTP endpoints, per-client queue</td><td>anywhere HTTP works and nothing else does</td></tr>
           </tbody>
         </table>
@@ -703,6 +811,14 @@ export function renderApp(root: HTMLElement): void {
         server and claims no routes. A custom transport only has to honour one rule:
         <code>send</code> must reject when the frame did not reach the peer, because a
         resolved send is what commits the client's cached result set.
+      </p>
+      <p class="note">
+        On a serverless platform the POST and the held stream are two different invocations,
+        so a reply can never reach a stream that process does not own.
+        <code>serverless: true</code> on both halves of the SSE transport returns each POST's
+        replies in its own response, and leaves the stream doing the one thing it still can:
+        pushing other clients' changes. A deployed example is
+        <a href="${REPO}/tree/main/examples/kanban">examples/kanban</a>.
       </p>
     `,
 		)}

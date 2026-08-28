@@ -18,7 +18,7 @@ You bring your own types and your own database. reflectdb handles the protocol, 
 └──────────────┘             └──────────────┘             └──────────────┘
        ▲                            │
        │      offline               ▼
-       └────── IndexedDB ───── op log (in-memory / SQLite / Postgres)
+       └────── IndexedDB ───── op log (in-memory / SQLite / Postgres / S3)
 ```
 
 ## Table of Contents
@@ -45,8 +45,11 @@ You bring your own types and your own database. reflectdb handles the protocol, 
   - [Windowed sync and pagination](#windowed-sync-and-pagination)
   - [Auto-generated REST API](#auto-generated-rest-api)
   - [High availability with Postgres](#high-availability-with-postgres)
+  - [Sync with no database at all](#sync-with-no-database-at-all)
+  - [Serverless sync on Vercel](#serverless-sync-on-vercel)
 - [Whiteboard + Pictionary example](#whiteboard--pictionary-example)
 - [Infinite Tetris example](#infinite-tetris-example)
+- [Multiplayer kanban example](#multiplayer-kanban-example)
 - [Architecture](#architecture)
 - [Core Concepts](#core-concepts)
   - [Hybrid Logical Clocks](#hybrid-logical-clocks)
@@ -57,6 +60,7 @@ You bring your own types and your own database. reflectdb handles the protocol, 
 - [API Reference](#api-reference)
   - [`reflectdb/core`](#reflectdbcore)
   - [`reflectdb/server`](#reflectdbserver)
+  - [`reflectdb/server/storage/object`](#reflectdbserverstorageobject)
   - [`reflectdb/client`](#reflectdbclient)
   - [`reflectdb/react`](#reflectdbreact)
   - [`reflectdb/svelte`](#reflectdbsvelte)
@@ -81,11 +85,14 @@ You bring your own types and your own database. reflectdb handles the protocol, 
 | Demo | Try it | What it demonstrates |
 |------|--------|----------------------|
 | **Infinite multiplayer Tetris** | [Play live](https://reflectdb-tetris.fly.dev/) · [source](./examples/tetris/) | Optimistic input prediction, server reconciliation and gravity, a live leaderboard, per-player progression, and Bun SQLite persistence in one perpetual game. Open two tabs to add another player. |
+| **Multiplayer kanban** | [Open the board](https://reflectdb-kanban.vercel.app/) · [source](./examples/kanban/) | A board whose entire durable state is an S3 bucket — no Postgres, no SQLite, no volume — running on Vercel functions. Shows leaseless optimistic concurrency and serverless SSE. Open two tabs and drag a card. |
 | **Collaborative whiteboard** | [Draw live](https://reflectdb-whiteboard.fly.dev/) · [source](./examples/whiteboard/) | Freeform drawing by default, optional Pictionary rounds, guest-authenticated rooms, ephemeral cursors, chat, presence, and per-user query results. Rooms and everything in them are deleted 30 minutes after they are created. Open two tabs to draw with yourself. |
 
-Both demos run on one auto-stopping Fly Machine with no volume, so the first load
-after an idle period may take a moment. Their data is intentionally ephemeral
-across deployments and Machine replacement.
+Tetris and the whiteboard each run on one auto-stopping Fly Machine with no
+volume, so the first load after an idle period may take a moment. The kanban
+board has no machine to wake — it is Vercel functions and a bucket — but every
+board resets on a five-minute window. All three keep their data intentionally
+ephemeral across deployments and Machine replacement.
 
 ## Why reflectdb
 
@@ -109,7 +116,7 @@ No code generation. No glue layer. No second source of truth.
 Optional bits (use what you want):
 
 - **Drizzle ORM** — if you point `table` at a Drizzle table, row types are auto-inferred.
-- **Server op log storage** — SQLite (for single-node) or Postgres (for HA). Omit it and the op log is in-memory.
+- **Server op log storage** — SQLite (single-node), Postgres (HA), or an S3-compatible bucket (no database at all). Omit it and the op log is in-memory.
 - **React / Svelte bindings** — use the core client directly if you prefer.
 
 ## Features
@@ -119,12 +126,14 @@ Optional bits (use what you want):
 - **End-to-end type safety** — schema defines row types, query params, writable fields, and which columns the server owns
 - **Per-row and per-column conflict resolution** — `lww`, `merge`, `server`, or a custom resolver
 - **Causal ordering** via hybrid logical clocks (HLC) — no dependence on synchronized wall clocks
-- **Pluggable storage** — in-memory, SQLite, or Postgres for the server op log; memory or IndexedDB for the browser
+- **Pluggable storage** — in-memory, SQLite, Postgres, or S3-compatible object storage for the server op log; memory or IndexedDB for the browser
 - **Auto-generated REST** — `server.rest()` turns your schema into CRUD endpoints that broadcast deltas
 - **Room-based access control** — scope clients to `org/:orgId` or arbitrary patterns
 - **Rate limiting** — global and per-table, fail-open
 - **Op log compaction** — configurable retention for old accepted ops
 - **High availability** — shared Postgres + optional cross-instance polling
+- **No database at all** — `createObjectStorage` runs a room with an S3-compatible bucket as the only durable store, group-committing one object per batch
+- **Runs serverless** — SSE in `serverless` mode answers each POST with the replies it produced, so sync works on Vercel, Lambda or Workers
 - **Framework bindings** — React hooks, Svelte stores, and a vanilla-JS helper; the core client works anywhere
 - **Ephemeral channels** — presence, cursors, typing indicators that never touch the op log, with a room snapshot on join and a pluggable adapter (Redis included) so presence spans a fleet
 - **Typed presence** — `presence()` in the schema, `usePresence()` in the component, key derived for you
@@ -141,6 +150,7 @@ Optional bits (use what you want):
 - Admin tools that should "just update" when someone else changes a row
 - Field-service or retail apps on spotty networks
 - Games or canvases with presence indicators and live cursors
+- Serverless deployments with no database to attach and no machine to keep warm
 
 ## Installation
 
@@ -860,6 +870,74 @@ const server = createSyncServer({
 
 Each poll tick first probes the shared op log's head HLC; an idle tick costs one `MAX(hlc)` query and broadcasts nothing. Only tables that actually changed are re-broadcast. The tick also re-merges the shared clock watermark, so an instance whose wall clock lags its peers stops stamping writes below HLCs clients have already seen.
 
+### Sync with no database at all
+
+`createObjectStorage` runs a room with an S3-compatible bucket as the only durable store — no Postgres, no SQLite, no volume. Works with AWS S3, Cloudflare R2, Tigris, MinIO and GCS.
+
+```ts
+import { createObjectStorage } from "reflectdb/server/storage/object";
+
+const storage = createObjectStorage({
+  store: {
+    provider: "tigris",              // or "aws" | "r2" | "minio" | "gcs"
+    bucket: process.env.S3_BUCKET!,
+    credentials: {
+      keyId: process.env.S3_ACCESS_KEY_ID!,
+      secret: process.env.S3_SECRET_ACCESS_KEY!,
+    },
+  },
+  roomId: "board-42",
+});
+
+const server = createSyncServer({ queries, db, transport, storage });
+
+// Flush and release the lease so the next machine takes over immediately.
+process.on("SIGTERM", () => storage.close().then(() => process.exit(0)));
+```
+
+Row state is authoritative **in memory** and the bucket is durability only, so reads never touch the network. A write appends to a buffer that group-commits one object per batch, then advances a compare-and-swapped manifest — the log's single linearization point. The flush loop is self-clocking, so there is no flush interval to tune, and an idle room issues no requests at all.
+
+The trade is that a room has exactly one writer, elected with a lease. Route each room to one instance: this adapter replaces shared-database HA polling with room affinity rather than layering on top of it. Where you cannot promise that routing, see [Serverless sync on Vercel](#serverless-sync-on-vercel).
+
+Every knob and its default is in [Object storage (no database)](#object-storage-no-database); the design, the failure modes and the known limits are in [`docs/object-storage.md`](./docs/object-storage.md).
+
+### Serverless sync on Vercel
+
+Serverless functions break two assumptions a long-lived server gets for free. Both have a flag, and [`examples/kanban`](./examples/kanban/) is a deployed board that uses them.
+
+**Any request can land on any instance,** so there is no single writer to elect. Drop the lease and let instances race on the manifest CAS instead:
+
+```ts
+const storage = createObjectStorage({
+  store: { /* … */ },
+  roomId,
+  concurrency: "optimistic",   // no lease; the loser of a CAS re-reads and retries
+});
+```
+
+That rests on the same guarantee the lease mode does — the CAS is what keeps the data correct, and the lease was only ever an optimization. What it costs is that in-memory state is no longer authoritative, because another invocation may have committed since this one last looked. Call `await storage.refresh()` — one manifest GET, `true` when something moved — before a read that must be current.
+
+**A function cannot hold a WebSocket, and SSE is one-way.** The POST and the event stream are two separate invocations, so a reply to a POST can never reach a stream that process does not own. `serverless: true` returns those replies in the POST's own response instead:
+
+```ts
+const transport = createSseServerTransport({ serverless: true });
+const handler = new MessageHandler({ transport, serverId, db, allowAnonymous: true });
+handler.setStorage(storage);
+
+// POST /api/sync/messages — the replies this message produced
+const messages = await transport.collectReplies(clientId, message, () =>
+  handler.whenIdle(clientId),
+);
+return Response.json({ messages });
+
+// GET /api/sync/events — the stream carries only OTHER clients' changes
+setInterval(async () => {
+  if (await storage.refresh()) await handler.pollRemoteChanges();
+}, 250);
+```
+
+`MessageHandler` is exported from `reflectdb/server`; the example drives it directly rather than through `createSyncServer`, because a serverless route needs `whenIdle` and `pollRemoteChanges`. Set the matching `serverless: true` on `createSseClientTransport`. Two more things a serverless deployment owns, both worked through in the kanban example: the client's session and subscriptions are rebuilt per invocation, because the `hello` and `sync_declare` went to a different process, and the stream instance must `bootstrap` so its result cache holds what the client is actually holding — the broadcast engine sends a diff against that cache, and an empty one makes every existing row look new.
+
 ## Whiteboard + Pictionary example
 
 A complete React + Bun + Drizzle app that exercises most of reflectdb in one
@@ -931,6 +1009,50 @@ database. The included Fly.io config runs on one auto-stopping 256 MB Machine.
 | Headless game rules and top-out reset tests | [`game.ts`](./examples/tetris/game.ts) / [`game.test.ts`](./examples/tetris/game.test.ts) |
 | Bun SQLite persistence and restart tests | [`database.ts`](./examples/tetris/database.ts) / [`database.test.ts`](./examples/tetris/database.test.ts) |
 
+## Multiplayer kanban example
+
+A shared board whose entire durable state is an S3-compatible bucket, deployed as
+Vercel functions: [`examples/kanban/`](./examples/kanban/). It is live at
+[reflectdb-kanban.vercel.app](https://reflectdb-kanban.vercel.app/). No Postgres,
+no SQLite, no volume, no Redis.
+
+```bash
+cd examples/kanban
+bun install
+KANBAN_LOCAL_DIR=.data vercel dev
+# open http://localhost:3000 in two tabs and drag a card
+```
+
+`KANBAN_LOCAL_DIR` swaps the bucket for a directory, so the example runs with no
+credentials — the filesystem driver has the same CAS semantics and the whole
+conformance suite runs against both. `vite` alone serves the UI but not `/api`,
+so the board will not connect without `vercel dev`.
+
+The board is open to anyone with the link and `?board=<slug>` makes a new one.
+Every board resets to its starting cards on a five-minute window, claimed with a
+single `If-None-Match: *` write so exactly one of N racing invocations does the
+work — a cron job would not run on Vercel's Hobby tier, and would leave an idle
+board costing something.
+
+| Pattern | Where |
+|---------|-------|
+| Object storage as the only durable store | `createObjectStorage` in [`lib/board.ts`](./examples/kanban/lib/board.ts) |
+| `concurrency: "optimistic"` — no lease, instances race on the manifest CAS | [`lib/board.ts`](./examples/kanban/lib/board.ts) |
+| Serverless SSE — replies returned from the POST that produced them | [`api/sync/messages.ts`](./examples/kanban/api/sync/messages.ts) |
+| `storage.refresh()` → `handler.pollRemoteChanges()` as the stream's poll loop | [`api/sync/events.ts`](./examples/kanban/api/sync/events.ts) |
+| Rebuilding a client's session, subscription and result cache per invocation | `restoreSubscription` in [`api/sync/events.ts`](./examples/kanban/api/sync/events.ts) |
+| Per-column merge so a rename and a drag on the same card both land | `cards` in [`lib/board.ts`](./examples/kanban/lib/board.ts) |
+| Payload validation with `MutationError` rather than coercion | `cards.mutate` in [`lib/board.ts`](./examples/kanban/lib/board.ts) |
+| Lazy periodic reset claimed with create-if-absent, applied through `applyServerOp` | [`lib/reset.ts`](./examples/kanban/lib/reset.ts) |
+| Fractional positioning for drag-and-drop ordering | [`schema.ts`](./examples/kanban/schema.ts) |
+| Bundling the API routes so Vercel's Node builder never sees a `.ts` specifier | [`scripts/build-kanban.ts`](./scripts/build-kanban.ts) / [`vercel.json`](./vercel.json) |
+
+Deploy from the repository root rather than the example directory — the example
+imports reflectdb from `src/`, and the root `vercel.json` bundles the two API
+routes before Vercel's function build. The variables to set, and the one extra
+`storage.init()` step MinIO needs, are in
+[`examples/kanban/README.md`](./examples/kanban/README.md).
+
 ## Architecture
 
 ```
@@ -982,6 +1104,7 @@ database. The included Fly.io config runs on one auto-stopping 256 MB Machine.
 │   • in-memory (default)           │  │                                      │
 │   • sqlite (bun:sqlite)           │  │                                      │
 │   • postgres (any pg-compatible)  │  │                                      │
+│   • object (any S3-compatible)    │  │                                      │
 └───────────────────────────────────┘  └──────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -1002,6 +1125,51 @@ database. The included Fly.io config runs on one auto-stopping 256 MB Machine.
 │   • createSyncVanilla(queries) → typed callback API                         │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Object storage as the durable store
+
+`createObjectStorage` replaces that op-log box with an S3-compatible bucket, and
+nothing else in the diagram changes. The bucket is durability, never the read
+path:
+
+```
+                    ┌──────────────────────────────────────┐
+   clients ───────▶ │  writer instance (one per room)      │
+                    │                                      │
+                    │  in-memory authoritative state       │ ◀── every read
+                    │  rows · per-column HLCs · op ring    │     lands here
+                    │  reserveOp set · meta                │
+                    │                                      │
+                    │  write buffer ──▶ group commit       │
+                    └───────────────────┬──────────────────┘
+                                        │  one PUT per batch,
+                                        │  then one CAS
+                                        ▼
+                    ┌──────────────────────────────────────┐
+                    │  object store — S3 · R2 · Tigris ·   │
+                    │  MinIO · GCS                         │
+                    │                                      │
+                    │  _lease      writer election         │
+                    │  _manifest   the CAS'd commit point  │
+                    │  wal/        immutable op batches    │
+                    │  snap/       materialized rows       │
+                    └──────────────────────────────────────┘
+```
+
+Reads (`getRow`, `getRows`, `getOpsSince`, `reserveOp`) hit memory and never
+touch the network. A write mutates memory and appends to a buffer; the buffer
+flushes as one object per batch, and the commit is the compare-and-swap that adds
+that segment to `_manifest`. Boot is one manifest GET, the newest snapshot, and
+the segments the manifest still lists.
+
+Only `_lease` and `_manifest` are ever overwritten, and only via CAS. Everything
+else is write-once, which is what makes concurrent readers safe — and what lets
+`concurrency: "optimistic"` drop the lease entirely on a platform that cannot
+route a room to one instance.
+
+Full design, provider compatibility, durability model and known limits:
+[`docs/object-storage.md`](./docs/object-storage.md).
+
 
 ## Core Concepts
 
@@ -1167,6 +1335,39 @@ See [Server-driven game loops](#server-driven-game-loops) for `interval` / `lock
 `emit` and `applyServerOp`.
 
 `createServer()` is the lower-level untyped variant — use it only if you need to register queries dynamically or don't have a `defineSyncQueries` map.
+
+### `reflectdb/server/storage/object`
+
+```ts
+import {
+  createObjectStorage,
+  createS3Driver, createFilesystemDriver, createMemoryDriver,
+  PreconditionFailedError, BackpressureError, NotWriterError, MemoryLimitExceededError,
+} from "reflectdb/server/storage/object";
+```
+
+**`createObjectStorage(config)`** — a storage adapter backed by an S3-compatible bucket. It satisfies the same `StorageAdapter` contract as the SQLite and Postgres adapters, plus a lifecycle and observability surface the design needs:
+
+| Member | Purpose |
+|--------|---------|
+| `init()` | Boot the room — manifest, snapshot, WAL replay. Idempotent, and implied by the first call to anything else; call it explicitly to surface boot failures at startup rather than on the first query. On MinIO it also seeds `_lease` and `_manifest`, which makes it a **deploy step** rather than something N servers race. |
+| `refresh()` | Fold in whatever another instance has committed. Returns `true` when the room actually moved. Costs one GET, and nothing further when `commitSeq` has not changed. Only meaningful under `concurrency: "optimistic"`. |
+| `flush()` | Resolve once everything buffered is durable. |
+| `close()` | Stop accepting writes, flush, stop the flush loop, release the lease. Every step is bounded by `shutdownFlushMs`, so a hung store cannot hold a `SIGTERM` open. |
+| `health` | `"healthy"`, `"degraded"` or `"unavailable"`, with `onHealthChange(cb)` to observe transitions. |
+| `durableHlc` | Highest HLC known to be on the store, with `onDurable(cb)` fired per batch. |
+
+Errors are typed so a caller can tell "someone else moved first" from a transport failure: `PreconditionFailedError` (a CAS lost), `BackpressureError` (the write buffer hit `batch.maxBufferBytes`), `NotWriterError` (this instance lost or never held the lease), `MemoryLimitExceededError` (room state exceeded `memory.maxRoomBytes`).
+
+Pass `store` and the S3 driver is built for you; pass `driver` to supply one directly:
+
+| Driver | Signature | Use |
+|--------|-----------|-----|
+| `createS3Driver` | `(config: StoreConfig)` | Any S3-compatible bucket. SigV4 over `fetch` with WebCrypto — no `node:crypto`, so the browser build stays clean. |
+| `createFilesystemDriver` | `(rootDir: string)` | Local development and tests with no network. Same CAS semantics via atomic rename, but a filesystem cannot make compare-then-rename atomic across processes — single process only. |
+| `createMemoryDriver` | `(options?)` | Tests, with fault injection (412 storms, 500s, latency) and `casWildcard: false` to reproduce MinIO. |
+
+See [Object storage (no database)](#object-storage-no-database) for the configuration, and [`docs/object-storage.md`](./docs/object-storage.md) for the design.
 
 ### `reflectdb/client`
 
@@ -1502,10 +1703,104 @@ At boot the client restores its persisted subscriptions first and hydrates only 
 | _(none)_ | omit `storage` | In-memory op log; ephemeral, single node |
 | `createSqliteStorage({ path?, db? })` | `reflectdb/server` | Single server, development, embedded — **Bun only** |
 | `createPostgresStorage(poolOrConfig)` | `reflectdb/server` | Multi-server HA, production |
+| `createObjectStorage({ store, roomId })` | `reflectdb/server/storage/object` | S3-compatible object storage as the only durable store — no database |
 
 `createPostgresStorage` accepts any object with `query(text, values) => { rows }` — `pg.Pool`, `pg.Client`, `@neondatabase/serverless`, etc. Optional config: `{ client, tablePrefix: "_reflectdb" }`.
 
 `createSqliteStorage` is backed by `bun:sqlite` and is resolved lazily, so importing `reflectdb/server` on Node is fine — only calling `createSqliteStorage` there throws. On Node, use `createPostgresStorage` (or omit `storage` for the in-memory op log).
+
+#### Object storage (no database)
+
+`createObjectStorage` runs a room with S3-compatible object storage as the only
+durable store. Works with AWS S3, Cloudflare R2, Tigris, MinIO and GCS.
+
+```ts
+import { createObjectStorage } from "reflectdb/server/storage/object";
+
+const storage = createObjectStorage({
+  store: {
+    provider: "tigris",            // or "aws" | "r2" | "minio" | "gcs"
+    bucket: "my-app",
+    credentials: {
+      keyId: process.env.AWS_ACCESS_KEY_ID!,
+      secret: process.env.AWS_SECRET_ACCESS_KEY!,
+    },
+  },
+  roomId: "board-42",
+});
+
+const server = createSyncServer({ queries, db, transport, storage });
+
+// Flush and release the lease so the next machine takes over immediately.
+process.on("SIGTERM", () => storage.close().then(() => process.exit(0)));
+```
+
+Row state is authoritative **in memory** and the object store is durability
+only, so reads never touch the network. Writes group-commit: one PUT per batch,
+self-clocking, with no flush interval to tune. An idle room issues zero requests.
+
+Because state is in memory and a room has exactly one writer, **route each room
+to one instance** — this adapter replaces shared-database HA polling with room
+affinity rather than layering on top of it.
+
+Where you cannot promise that routing — serverless functions, where any request
+lands on any instance — set `concurrency: "optimistic"`. It drops the lease and
+lets instances race on the manifest CAS instead, with the loser re-reading and
+retrying. That rests on the same guarantee the lease mode does: the CAS is what
+keeps the data correct, and the lease was only ever an optimization. In exchange,
+in-memory state is no longer authoritative, so call `await storage.refresh()`
+(one manifest GET) before a read that must be current.
+
+Defaults are correct rather than fast: `durability: "durable"` acks a write only
+once it is on the store. `"buffered"` acks earlier and is lossy on crash until
+the durable-watermark protocol lands.
+
+The `SIGTERM` handler above matters — without it a deploy drops whatever is
+buffered, and the next writer waits out `lease.ttlMs` before taking the room.
+
+MinIO needs a one-time `await storage.init()` as a **deploy step** (it rejects
+the `If-None-Match: *` wildcard, so the room has to be seeded); on every other
+provider `init()` is a no-op.
+
+`store` describes the bucket. `provider` fills in `endpoint` and `urlStyle`, so most deployments set three fields and nothing else:
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `bucket` | yes | |
+| `credentials` | yes | `{ keyId, secret, sessionToken? }`. |
+| `provider` | no | `"aws"`, `"r2"`, `"tigris"`, `"minio"` or `"gcs"` — a preset for `endpoint`, `region` and `urlStyle`. |
+| `accountId` | for R2 | Derives `https://<id>.r2.cloudflarestorage.com`. |
+| `endpoint` / `region` / `urlStyle` | no | Override the preset. MinIO has no default endpoint, and a Fly-provisioned Tigris bucket uses `fly.storage.tigris.dev` rather than the preset's `t3.storage.dev`. |
+| `prefix` | no | Key prefix, so one bucket holds many apps. Keys are `<prefix>/rooms/<roomId>/…`. |
+
+Pass `driver` instead of `store` to supply a driver directly — `createFilesystemDriver(dir)` for local development with no credentials, `createMemoryDriver()` for tests.
+
+Everything else, with its default:
+
+| Option | Default | Purpose |
+|--------|---------|---------|
+| `roomId` | — | Required. One room per adapter; it is the key prefix and the routing key. |
+| `writerId` | random | Identifies this writer in the lease. Set it to make ownership legible in logs. |
+| `durability` | `"durable"` | Ack after the manifest CAS. `"buffered"` acks on memory apply and is lossy on crash until the durable-watermark protocol lands. |
+| `concurrency` | `"single-writer"` | `"optimistic"` drops the lease where a room cannot be routed to one instance. See [Serverless sync on Vercel](#serverless-sync-on-vercel). |
+| `retentionMs` | `Infinity` | How long accepted ops are kept. |
+| `batch.maxBytes` | 4 MiB | Largest single WAL segment. |
+| `batch.minLingerMs` | `5` | Coalesces ops arriving in the same event-loop tick. Not a flush interval — there is none, the flush loop is self-clocking. |
+| `batch.maxBufferBytes` | 64 MiB | Buffer ceiling before the backpressure policy fires. |
+| `batch.onBackpressure` | `"reject"` | Throw `BackpressureError` so backpressure reaches the client. `"degrade"` keeps accepting, stops promising durability, and flips `health`. |
+| `compaction.afterSegments` | `200` | Snapshot once the manifest lists this many segments. Boot costs one GET per listed segment, so lower it for rooms that are read cold more often than they are written. |
+| `compaction.afterBytes` | 64 MiB | Or this many bytes, whichever comes first. |
+| `compaction.gcGraceMs` | `3_600_000` | Delay before deleting superseded segments, so a reader holding the old manifest does not 404. |
+| `lease.ttlMs` / `lease.renewMs` | `300_000` / `120_000` | Long on purpose. `close()` releases the lease, so the TTL bounds only *unclean* failover — and a long one is what keeps an idle room free. |
+| `lease.mode` | `"on-write"` | A room holding connected clients but taking no writes renews nothing. |
+| `memory.maxTotalBytes` / `memory.maxRoomBytes` | `Infinity` | Global across rooms, then per room. State is authoritative in memory, so this is a cliff rather than a slope — set it and the ceiling arrives as `MemoryLimitExceededError` instead of an OOM. |
+| `memory.onExceeded` | `"reject"` | `"evict"` and `"spill"` are accepted as configuration but throw at the limit; neither is implemented yet. |
+| `memory.idleEvictMs` | `300_000` | Zero-client rooms flush, release the lease and drop their state. |
+| `shutdownFlushMs` | `5000` | Bounds every step of `close()`, so a hung store cannot hold a `SIGTERM` open. |
+| `onDurable` / `onHealthChange` | — | Callbacks. The same values are readable as `storage.durableHlc` and `storage.health`. |
+
+Full design, the configuration reference and the known limits:
+[`docs/object-storage.md`](./docs/object-storage.md).
 
 #### Client
 
@@ -1592,10 +1887,41 @@ Returns a `ServerTransport` plus `handleOpen`, `handleMessage`, `handleClose`, `
 ```ts
 createSseServerTransport({
   replayBufferSize: 256,        // Last-Event-ID replay window
+  serverless: false,            // see below
 });
 ```
 
 Two endpoints to wire: `GET /sync/events/:clientId` (SSE stream) and `POST /sync/messages/:clientId` (client → server).
+
+##### Serverless SSE
+
+SSE is server→client only: normally a client POSTs a message and every reply —
+`hello_ack`, snapshots, op acks — comes back down the held stream. That works
+only while the POST and the stream are handled by the **same process**.
+
+On Vercel, Lambda or Workers they are two separate invocations, so those replies
+would be enqueued onto a stream the POST's process does not have, and the client
+hangs at the handshake. Set `serverless: true` on both halves:
+
+```ts
+// server: return the replies the POST produced
+const messages = await transport.collectReplies(clientId, message, () =>
+  handler.whenIdle(clientId),
+);
+return Response.json({ messages });
+
+// client
+createSseClientTransport({ eventUrl, messageUrl, serverless: true });
+```
+
+The stream is then left doing the one thing it can: pushing *other* clients'
+changes. Leave it off for a single-process server — replies stream normally
+there, and turning it on would deliver each one twice.
+
+Two things a serverless deployment must also handle, both shown in
+[`examples/kanban`](./examples/kanban/): the session is rebuilt per invocation
+(nothing remembers that this client subscribed), and the stream instance has to
+poll storage to notice writes made elsewhere.
 
 #### HTTP long-polling
 
@@ -1663,6 +1989,7 @@ reference:
 | `og/index.html` | `public/og.png` | 1200x630 at 2x | reflectdb.dev |
 | `og/tetris.html` | `public/og-tetris.png` | 1200x630 at 2x | the Tetris demo — served from reflectdb.dev, since the Fly Machine sleeps |
 | `og/whiteboard.html` | `public/og-whiteboard.png` | 1200x630 at 2x | the whiteboard demo, served from reflectdb.dev for the same reason |
+| `og/kanban.html` | `public/og-kanban.png` | 1200x630 at 2x | the kanban demo, so all four cards regenerate together |
 | `og/github.html` | `public/og-github.png` | 1280x640 at 2x | this repository's social preview, uploaded by hand under Settings → Social preview |
 
 Edit the HTML, not the PNGs. 1200x630 is the one ratio X, Facebook, LinkedIn,
@@ -1697,6 +2024,8 @@ src/
 │   │             broadcast-engine, result-cache, eager-buffer,
 │   │             compaction-manager, replay-detector, ephemeral-manager
 │   └── storage/  SQLite + Postgres adapters
+│       └── object/  S3-compatible object storage — manifest CAS, WAL,
+│                    snapshots, memory / filesystem / S3 drivers
 ├── client/       sync-client, store, ops, typed-client
 │   └── storage/  memory + IndexedDB adapters
 ├── transport/    WebSocket (runtime-agnostic + Bun.serve), SSE, polling

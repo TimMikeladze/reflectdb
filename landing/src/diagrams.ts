@@ -868,6 +868,85 @@ export const twoStores = frame(880, 330, (id) => {
 	].join("");
 });
 
+// ── 7b. Object storage as the only durable store ────────────────────────
+
+export const objectStorage = frame(880, 418, (id) => {
+	const X = 60;
+	const W = 560;
+	const MID = X + W / 2;
+
+	return [
+		label(24, 34, "NO DATABASE — THE BUCKET IS DURABILITY, NEVER THE READ PATH", "start", "hd"),
+		node(MID - 130, 54, 260, 38, ["one accepted write"], { tone: "g" }),
+		arrow(
+			[
+				[MID, 94],
+				[MID, 116],
+			],
+			id,
+			"m",
+		),
+		node(
+			X,
+			118,
+			W,
+			84,
+			[
+				"writer instance — one room, one writer",
+				"rows · per-column HLCs · op ring · reserveOp set",
+				"authoritative in memory, so every read stops here",
+			],
+			{ tone: "b" },
+		),
+		label(644, 150, "getRow · getRows", "start"),
+		label(644, 168, "getOpsSince · resume", "start"),
+		label(644, 186, "— no network at all", "start"),
+		arrow(
+			[
+				[MID, 204],
+				[MID, 226],
+			],
+			id,
+			"m",
+		),
+		node(
+			X,
+			228,
+			W,
+			66,
+			[
+				"write buffer ──▶ group commit",
+				"exactly one flush in flight, so batch size tracks",
+				"store latency on its own — there is no flushMs",
+			],
+			{ tone: "fg" },
+		),
+		arrow(
+			[
+				[MID, 296],
+				[MID, 326],
+			],
+			id,
+			"o",
+		),
+		label(644, 316, "1 PUT per batch,", "start"),
+		label(644, 334, "then 1 CAS", "start"),
+		node(
+			X,
+			328,
+			W,
+			76,
+			[
+				"object store — S3 · R2 · Tigris · MinIO · GCS",
+				"wal/ write-once batches · snap/ materialized rows",
+				"_manifest  compare-and-swapped: the one linearization point",
+			],
+			{ tone: "o" },
+		),
+		label(440, 414, "the CAS is what keeps the data correct — the writer lease is only an optimization"),
+	].join("");
+});
+
 // ── 8. Module map ───────────────────────────────────────────────────────
 
 export const modules = frame(880, 386, (id) => {

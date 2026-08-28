@@ -26,3 +26,6 @@ test-query.*
 .gstack/
 CLAUDE.md
 AGENTS.md
+.vercel
+.env*
+api/

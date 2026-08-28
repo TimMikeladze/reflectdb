@@ -30,6 +30,7 @@ const entry = [
 	"src/client/storage/indexeddb.ts",
 	"src/server/ephemeral/index.ts",
 	"src/server/ephemeral/redis.ts",
+	"src/server/storage/object/index.ts",
 ];
 
 // Pin the base directory so output lands at dist/<subpath>/index.js rather

@@ -52,7 +52,18 @@
 			content="A shared whiteboard sketch with two live peer cursors on it, beside the reflectdb wordmark."
 		/>
 
-		<meta name="theme-color" content="#0a0a0a" />
+		<meta name="theme-color" content="var(--on-accent-solid)" />
+		<script>
+			// Applies a pinned theme BEFORE first paint. Running this in the body,
+			// or from the bundle, would show one frame of the wrong colours on
+			// every load — the flash is the whole reason it is inline and here.
+			try {
+				var t = localStorage.getItem("reflectdb-theme");
+				if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+			} catch (e) {
+				/* private mode; the OS preference still applies */
+			}
+		</script>
 		<style>
 			* {
 				box-sizing: border-box;
@@ -60,18 +71,172 @@
 				padding: 0;
 			}
 			:root {
-				--bg: #0a0a0a;
+				--bg: var(--on-accent-solid);
 				--bg-1: #111;
 				--bg-2: #1a1a1a;
 				--border: #222;
 				--border-strong: #333;
 				--text: #ededed;
-				--muted: #888;
+				--muted: var(--muted);
 				--accent: #818cf8;
 				--accent-2: #3b82f6;
 				--success: #4ade80;
 				--warn: #facc15;
 				--danger: #f87171;
+				--dim: #555;
+				--tint-danger: #3a1a1a;
+				--tint-success: #1a3a1a;
+				--tint-success-strong: #052e16;
+				--tint-warn: #3a3a1a;
+				--tint-warn-strong: #422006;
+				--tint-accent: #1e1b4b;
+				--tint-accent-strong: #1f1147;
+				--accent-solid: #312e81;
+				--accent-strong: #6366f1;
+				--accent-line: #a5b4fc;
+				--accent-line-soft: #4338ca40;
+				--on-accent-soft: #c7d2fe;
+				--on-accent: #fff;
+				--on-accent-solid: #0a0a0a;
+				--panel-grad-1: #1a1a2e;
+				--panel-grad-2: #111;
+				--warn-line: #facc1533;
+				--warn-line-strong: #facc1555;
+				--warn-tint: #facc150f;
+				--scrim: rgba(0, 0, 0, 0.6);
+				--overlay-line: rgba(255, 255, 255, 0.3);
+				--toggle-bg: #111;
+				--toggle-line: #222;
+				--toggle-fg: var(--muted);
+				--toggle-hover: #ededed;
+			}
+
+			/*
+			 * Light palette, derived from the dark one so the two read as one
+			 * design. Every chrome colour goes through a token; the ink colours a
+			 * person draws with are deliberately NOT themed, because strokes are
+			 * user data and re-mapping them would change what someone drew.
+			 */
+			@media (prefers-color-scheme: light) {
+				:root:not([data-theme="dark"]) {
+				--bg: #ffffff;
+				--bg-1: #f7f7f8;
+				--bg-2: #eeeef1;
+				--border: #e2e2e6;
+				--border-strong: #cfcfd6;
+				--text: #17171a;
+				--muted: #63636e;
+				--accent: #4f46e5;
+				--accent-2: #2563eb;
+				--success: #15803d;
+				--warn: #a16207;
+				--danger: #dc2626;
+				--dim: #8a8a94;
+				/* Status tints invert: a dark wash reads as "filled in" on dark and
+				   as a smudge on light, so light uses pale washes of the same hue. */
+				--tint-danger: #fee2e2;
+				--tint-success: #dcfce7;
+				--tint-success-strong: #bbf7d0;
+				--tint-warn: #fef9c3;
+				--tint-warn-strong: #fde68a;
+				--tint-accent: #e0e7ff;
+				--tint-accent-strong: #c7d2fe;
+				--accent-solid: #4f46e5;
+				--accent-strong: #4f46e5;
+				--accent-line: #6366f1;
+				--accent-line-soft: #4f46e540;
+				--on-accent-soft: #312e81;
+				--on-accent: #ffffff;
+				--on-accent-solid: #ffffff;
+				--panel-grad-1: #ffffff;
+				--panel-grad-2: #f4f4f6;
+				--warn-line: #a1620733;
+				--warn-line-strong: #a1620755;
+				--warn-tint: #a162070f;
+				--scrim: rgba(15, 15, 20, 0.45);
+				--overlay-line: rgba(20, 20, 25, 0.3);
+				--toggle-bg: #ffffff;
+				--toggle-line: #e2e2e6;
+				--toggle-fg: #63636e;
+				--toggle-hover: #17171a;
+				}
+			}
+
+			:root[data-theme="light"] {
+				--bg: #ffffff;
+				--bg-1: #f7f7f8;
+				--bg-2: #eeeef1;
+				--border: #e2e2e6;
+				--border-strong: #cfcfd6;
+				--text: #17171a;
+				--muted: #63636e;
+				--accent: #4f46e5;
+				--accent-2: #2563eb;
+				--success: #15803d;
+				--warn: #a16207;
+				--danger: #dc2626;
+				--dim: #8a8a94;
+				/* Status tints invert: a dark wash reads as "filled in" on dark and
+				   as a smudge on light, so light uses pale washes of the same hue. */
+				--tint-danger: #fee2e2;
+				--tint-success: #dcfce7;
+				--tint-success-strong: #bbf7d0;
+				--tint-warn: #fef9c3;
+				--tint-warn-strong: #fde68a;
+				--tint-accent: #e0e7ff;
+				--tint-accent-strong: #c7d2fe;
+				--accent-solid: #4f46e5;
+				--accent-strong: #4f46e5;
+				--accent-line: #6366f1;
+				--accent-line-soft: #4f46e540;
+				--on-accent-soft: #312e81;
+				--on-accent: #ffffff;
+				--on-accent-solid: #ffffff;
+				--panel-grad-1: #ffffff;
+				--panel-grad-2: #f4f4f6;
+				--warn-line: #a1620733;
+				--warn-line-strong: #a1620755;
+				--warn-tint: #a162070f;
+				--scrim: rgba(15, 15, 20, 0.45);
+				--overlay-line: rgba(20, 20, 25, 0.3);
+				--toggle-bg: #ffffff;
+				--toggle-line: #e2e2e6;
+				--toggle-fg: #63636e;
+				--toggle-hover: #17171a;
+			}
+
+			/* The toggle is fixed to the viewport, and this app has its own bar in
+			   that corner — without the reservation it lands on top of the sign-out
+			   button. */
+			.header-right {
+				padding-right: 38px;
+			}
+
+			#theme-toggle {
+				position: fixed;
+				top: 12px;
+				right: 12px;
+				z-index: 999;
+				width: 30px;
+				height: 30px;
+				display: grid;
+				place-items: center;
+				border-radius: 999px;
+				border: 1px solid var(--toggle-line);
+				background: var(--toggle-bg);
+				color: var(--toggle-fg);
+				cursor: pointer;
+				padding: 0;
+			}
+
+			#theme-toggle:hover {
+				color: var(--toggle-hover);
+				border-color: var(--toggle-hover);
+			}
+
+			#theme-toggle:focus-visible {
+				outline: 2px solid var(--toggle-hover);
+				outline-offset: 2px;
 			}
 			body {
 				font-family: "Inter", sans-serif;
@@ -104,7 +269,7 @@
 				align-items: center;
 				justify-content: center;
 				flex: 1;
-				color: #555;
+				color: var(--dim);
 				font-size: 0.875rem;
 				gap: 0.75rem;
 			}
@@ -119,7 +284,7 @@
 				cursor: pointer;
 			}
 			.link-btn:hover {
-				border-color: #555;
+				border-color: var(--dim);
 				color: var(--text);
 			}
 
@@ -144,7 +309,7 @@
 				color: var(--danger);
 				font-size: 0.8125rem;
 				padding: 0.5rem 0.75rem;
-				background: #3a1a1a;
+				background: var(--tint-danger);
 				border-radius: 0.375rem;
 			}
 			.guest-btn {
@@ -200,7 +365,7 @@
 				cursor: pointer;
 			}
 			.sign-out:hover {
-				border-color: #555;
+				border-color: var(--dim);
 				color: var(--text);
 			}
 
@@ -212,17 +377,17 @@
 			}
 			.status.connected,
 			.status.synced {
-				background: #1a3a1a;
+				background: var(--tint-success);
 				color: var(--success);
 			}
 			.status.disconnected {
-				background: #3a1a1a;
+				background: var(--tint-danger);
 				color: var(--danger);
 			}
 			.status.connecting,
 			.status.bootstrapping,
 			.status.hydrating {
-				background: #3a3a1a;
+				background: var(--tint-warn);
 				color: var(--warn);
 			}
 
@@ -270,17 +435,17 @@
 				border-radius: 0.375rem;
 				border: none;
 				background: var(--accent);
-				color: #0a0a0a;
+				color: var(--on-accent-solid);
 				font-size: 0.8125rem;
 				font-weight: 600;
 				cursor: pointer;
 			}
 			.create-form button:hover {
-				background: #6366f1;
-				color: #fff;
+				background: var(--accent-strong);
+				color: var(--on-accent);
 			}
 			.empty-rooms {
-				color: #555;
+				color: var(--dim);
 				text-align: center;
 				padding: 3rem;
 				font-size: 0.875rem;
@@ -309,8 +474,8 @@
 				border-color: var(--accent);
 			}
 			.room-card.pictionary {
-				border-color: #4338ca40;
-				background: linear-gradient(135deg, #1a1a2e, #111);
+				border-color: var(--accent-line-soft);
+				background: linear-gradient(135deg, var(--panel-grad-1), var(--panel-grad-2));
 			}
 			.room-card.pictionary:hover {
 				border-color: var(--accent);
@@ -332,12 +497,12 @@
 				color: var(--muted);
 			}
 			.room-mode.pictionary {
-				background: #312e81;
-				color: #c7d2fe;
+				background: var(--accent-solid);
+				color: var(--on-accent-soft);
 			}
 			.room-state {
 				font-size: 0.625rem;
-				color: #666;
+				color: var(--dim);
 				text-transform: uppercase;
 				letter-spacing: 0.08em;
 			}
@@ -367,15 +532,15 @@
 			}
 			.room-expiry {
 				font-size: 0.6875rem;
-				color: #666;
+				color: var(--dim);
 				font-variant-numeric: tabular-nums;
 			}
 			.expiry-notice {
 				margin-bottom: 0.75rem;
 				padding: 0.625rem 0.75rem;
 				border-radius: 0.5rem;
-				border: 1px solid #facc1533;
-				background: #facc150f;
+				border: 1px solid var(--warn-line);
+				background: var(--warn-tint);
 				color: var(--warn);
 				font-size: 0.8125rem;
 			}
@@ -390,12 +555,12 @@
 			}
 			.room-expiry-badge.urgent {
 				color: var(--warn);
-				border-color: #facc1555;
+				border-color: var(--warn-line-strong);
 			}
 			.room-delete {
 				background: none;
 				border: 1px solid var(--border-strong);
-				color: #555;
+				color: var(--dim);
 				padding: 0.125rem 0.5rem;
 				border-radius: 0.25rem;
 				font-size: 0.6875rem;
@@ -431,7 +596,7 @@
 				cursor: pointer;
 			}
 			.back-btn:hover {
-				border-color: #555;
+				border-color: var(--dim);
 				color: var(--text);
 			}
 			.room-title {
@@ -470,7 +635,7 @@
 				gap: 1rem;
 				padding: 0.625rem 1rem;
 				border-bottom: 1px solid var(--bg-2);
-				background: linear-gradient(180deg, #0e0e10, #0a0a0a);
+				background: linear-gradient(180deg, var(--panel-grad-1), var(--panel-grad-2));
 				flex-shrink: 0;
 			}
 			.hud-left,
@@ -493,19 +658,19 @@
 				color: var(--muted);
 			}
 			.hud-state.state-drawing {
-				background: #052e16;
+				background: var(--tint-success-strong);
 				color: var(--success);
 			}
 			.hud-state.state-picking {
-				background: #1f1147;
-				color: #c7d2fe;
+				background: var(--tint-accent-strong);
+				color: var(--on-accent-soft);
 			}
 			.hud-state.state-round_end {
-				background: #422006;
+				background: var(--tint-warn-strong);
 				color: var(--warn);
 			}
 			.hud-state.state-finished {
-				background: #3a1a1a;
+				background: var(--tint-danger);
 				color: var(--warn);
 			}
 			.winner-banner {
@@ -529,8 +694,8 @@
 				padding: 0.5rem 1rem;
 				border-radius: 0.5rem;
 				border: 1px solid var(--accent);
-				background: linear-gradient(180deg, #1e1b4b, #1f1147);
-				color: #e0e7ff;
+				background: linear-gradient(180deg, var(--tint-accent), var(--tint-accent-strong));
+				color: var(--on-accent-soft);
 				font-size: 0.875rem;
 				font-weight: 600;
 				cursor: pointer;
@@ -538,8 +703,8 @@
 				letter-spacing: 0.05em;
 			}
 			.pick-btn:hover {
-				background: linear-gradient(180deg, #312e81, #1f1147);
-				border-color: #a5b4fc;
+				background: linear-gradient(180deg, var(--accent-solid), var(--tint-accent-strong));
+				border-color: var(--accent-line);
 				transform: translateY(-1px);
 			}
 			.pick-btn:active {
@@ -577,11 +742,11 @@
 			}
 			.word.mask {
 				letter-spacing: 0.2em;
-				color: #c7d2fe;
+				color: var(--on-accent-soft);
 			}
 			.word-len {
 				font-size: 0.625rem;
-				color: #555;
+				color: var(--dim);
 			}
 			.hud-timer {
 				font-family: "Space Mono", monospace;
@@ -614,7 +779,7 @@
 				cursor: pointer;
 			}
 			.hud-btn:hover:not(:disabled) {
-				border-color: #555;
+				border-color: var(--dim);
 			}
 			.hud-btn:disabled {
 				opacity: 0.4;
@@ -623,13 +788,13 @@
 			.hud-btn.primary {
 				background: var(--accent);
 				border-color: var(--accent);
-				color: #0a0a0a;
+				color: var(--on-accent-solid);
 				font-weight: 600;
 			}
 			.hud-btn.primary:hover:not(:disabled) {
-				background: #6366f1;
-				border-color: #6366f1;
-				color: #fff;
+				background: var(--accent-strong);
+				border-color: var(--accent-strong);
+				color: var(--on-accent);
 			}
 
 			/* ── Game body ───────────────────────────────────────────── */
@@ -656,7 +821,7 @@
 			.canvas-wrap {
 				flex: 1;
 				position: relative;
-				background: #0e0e0e;
+				background: var(--bg-1);
 				cursor: crosshair;
 				overflow: hidden;
 			}
@@ -680,7 +845,7 @@
 				top: 0.75rem;
 				left: 50%;
 				transform: translateX(-50%);
-				background: rgba(0, 0, 0, 0.6);
+				background: var(--scrim);
 				border: 1px solid var(--border-strong);
 				color: var(--muted);
 				padding: 0.375rem 0.75rem;
@@ -702,7 +867,7 @@
 				left: 16px;
 				top: 14px;
 				font-size: 0.625rem;
-				color: #000;
+				color: var(--on-accent-solid);
 				font-weight: 600;
 				white-space: nowrap;
 				padding: 2px 6px;
@@ -737,7 +902,7 @@
 				transition: border-color 0.1s;
 			}
 			.color-btn:hover {
-				border-color: rgba(255, 255, 255, 0.3);
+				border-color: var(--overlay-line);
 			}
 			.color-btn.active {
 				border-color: var(--text);
@@ -754,16 +919,16 @@
 				justify-content: center;
 			}
 			.size-btn:hover {
-				border-color: #444;
+				border-color: var(--border-strong);
 			}
 			.size-btn.active {
-				border-color: #888;
+				border-color: var(--muted);
 				background: var(--bg-2);
 			}
 			.size-dot {
 				display: block;
 				border-radius: 50%;
-				background: #888;
+				background: var(--muted);
 			}
 
 			/* ── Sidebar ─────────────────────────────────────────────── */
@@ -801,10 +966,10 @@
 				border-color: var(--accent);
 			}
 			.player.drawer {
-				background: #1e1b4b;
+				background: var(--tint-accent);
 			}
 			.player.guessed {
-				background: #052e16;
+				background: var(--tint-success-strong);
 			}
 			.player-name {
 				display: flex;
@@ -826,11 +991,11 @@
 			}
 			.drawer-badge {
 				background: var(--accent);
-				color: #0a0a0a;
+				color: var(--on-accent-solid);
 			}
 			.guess-badge {
 				background: var(--success);
-				color: #052e16;
+				color: var(--tint-success-strong);
 			}
 			.self-badge {
 				background: var(--bg-2);
@@ -866,7 +1031,7 @@
 				gap: 0.25rem;
 			}
 			.chat-empty {
-				color: #555;
+				color: var(--dim);
 				text-align: center;
 				padding: 2rem;
 				font-size: 0.8125rem;
@@ -880,7 +1045,7 @@
 				border-radius: 0.375rem;
 			}
 			.chat-msg.mine {
-				background: #1a2a1a;
+				background: var(--tint-success);
 			}
 			.chat-msg.kind-system {
 				background: transparent;
@@ -893,11 +1058,11 @@
 				display: none;
 			}
 			.chat-msg.kind-correct {
-				background: #052e16;
+				background: var(--tint-success-strong);
 				border-left: 2px solid var(--success);
 			}
 			.chat-msg.kind-close {
-				background: #422006;
+				background: var(--tint-warn-strong);
 				border-left: 2px solid var(--warn);
 			}
 			.chat-author {
@@ -907,7 +1072,7 @@
 			}
 			.chat-text {
 				font-size: 0.8125rem;
-				color: #ddd;
+				color: var(--text);
 				word-break: break-word;
 			}
 			.chat-input {
@@ -927,7 +1092,7 @@
 				outline: none;
 			}
 			.chat-input input:focus {
-				border-color: #555;
+				border-color: var(--dim);
 			}
 			.chat-input input:disabled {
 				opacity: 0.5;
@@ -938,7 +1103,7 @@
 				border-radius: 0.375rem;
 				border: none;
 				background: var(--accent-2);
-				color: #fff;
+				color: var(--on-accent);
 				font-size: 0.75rem;
 				cursor: pointer;
 				font-weight: 600;
@@ -964,5 +1129,48 @@
 	<body>
 		<div id="root"></div>
 		<script type="module" src="./render.tsx"></script>
+		<button id="theme-toggle" type="button" aria-label="Switch theme"></button>
+		<script>
+			// Three states: nothing pinned follows the OS, an explicit pick writes
+			// data-theme plus localStorage. The icon shows where a click GOES —
+			// a sun while dark — not where you currently are.
+			(function () {
+				var SUN =
+					'<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="3.1"/><path d="M8 1.2v1.6M8 13.2v1.6M14.8 8h-1.6M2.8 8H1.2M12.8 3.2l-1.1 1.1M4.3 11.7l-1.1 1.1M12.8 12.8l-1.1-1.1M4.3 4.3 3.2 3.2"/></g></svg>';
+				var MOON =
+					'<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M13.7 10.1A5.9 5.9 0 0 1 6.2 2.5a6.5 6.5 0 1 0 7.5 7.6Z"/></svg>';
+				var button = document.getElementById("theme-toggle");
+				if (!button) return;
+				var root = document.documentElement;
+				var media = window.matchMedia("(prefers-color-scheme: dark)");
+
+				function resolve() {
+					var pinned = root.dataset.theme;
+					if (pinned === "light" || pinned === "dark") return pinned;
+					return media.matches ? "dark" : "light";
+				}
+				function paint(theme) {
+					var next = theme === "dark" ? "light" : "dark";
+					button.innerHTML = theme === "dark" ? SUN : MOON;
+					button.setAttribute("aria-label", "Switch to " + next + " theme");
+					button.setAttribute("title", "Switch to " + next + " theme");
+				}
+				paint(resolve());
+				button.addEventListener("click", function () {
+					var next = resolve() === "dark" ? "light" : "dark";
+					root.dataset.theme = next;
+					try {
+						localStorage.setItem("reflectdb-theme", next);
+					} catch (e) {
+						/* pick still holds for this page */
+					}
+					paint(next);
+				});
+				// Until something is pinned the OS is in charge, so follow it.
+				media.addEventListener("change", function () {
+					if (!root.dataset.theme) paint(resolve());
+				});
+			})();
+		</script>
 	</body>
 </html>

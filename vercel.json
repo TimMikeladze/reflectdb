@@ -1,0 +1,9 @@
+{
+	"$schema": "https://openapi.vercel.sh/vercel.json",
+	"installCommand": "bun install",
+	"buildCommand": "bun run scripts/build-kanban.ts",
+	"outputDirectory": "examples/kanban/dist",
+	"functions": {
+		"api/sync/events.js": { "maxDuration": 300 }
+	}
+}
