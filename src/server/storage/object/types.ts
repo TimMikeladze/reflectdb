@@ -359,15 +359,24 @@ export interface ResolvedObjectStorageConfig {
 	shutdownFlushMs: number;
 }
 
-export const OBJECT_STORAGE_DEFAULTS = {
-	durability: "durable" as DurabilityMode,
+/** Everything `ResolvedObjectStorageConfig` carries except the per-room identity. */
+export type ObjectStorageDefaults = Omit<ResolvedObjectStorageConfig, "roomId" | "writerId">;
+
+// Annotated rather than `as const`: the declaration build runs oxc's
+// isolatedDeclarations emitter, which infers a type only from syntax. An
+// arithmetic literal (`4 * 1024 * 1024`), a property access
+// (`Number.POSITIVE_INFINITY`) and an `as` cast are each beyond it, so the
+// const-asserted version emitted ten TS9013 errors — warnings locally, fatal
+// under CI, where bunup escalates them.
+export const OBJECT_STORAGE_DEFAULTS: ObjectStorageDefaults = {
+	durability: "durable",
 	retentionMs: Number.POSITIVE_INFINITY,
-	concurrency: "single-writer" as ConcurrencyMode,
+	concurrency: "single-writer",
 	batch: {
 		maxBytes: 4 * 1024 * 1024,
 		minLingerMs: 5,
 		maxBufferBytes: 64 * 1024 * 1024,
-		onBackpressure: "reject" as BackpressurePolicy,
+		onBackpressure: "reject",
 	},
 	compaction: {
 		afterSegments: 200,
@@ -377,13 +386,13 @@ export const OBJECT_STORAGE_DEFAULTS = {
 	lease: {
 		ttlMs: 5 * 60 * 1000,
 		renewMs: 2 * 60 * 1000,
-		mode: "on-write" as LeaseMode,
+		mode: "on-write",
 	},
 	memory: {
 		maxTotalBytes: Number.POSITIVE_INFINITY,
 		maxRoomBytes: Number.POSITIVE_INFINITY,
-		onExceeded: "reject" as MemoryPolicy,
+		onExceeded: "reject",
 		idleEvictMs: 5 * 60 * 1000,
 	},
 	shutdownFlushMs: 5000,
-} as const;
+};
