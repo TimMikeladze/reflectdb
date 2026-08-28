@@ -9,11 +9,14 @@
  * was never emitted. Bundling resolves every import ahead of time and hands
  * Vercel one self-contained file per route, which also keeps cold starts down.
  *
- * Run by `vercel.kanban.json`'s buildCommand, before the function build phase,
- * so the generated files are on disk when Vercel scans `api/`. That config is
- * NOT named `vercel.json` on purpose: a root `vercel.json` would also govern
- * the landing-site project built from this repo. Deploy with
- * `vercel deploy --prod -A vercel.kanban.json`.
+ * Run by the root `vercel.json`'s buildCommand, before the function build
+ * phase, so the generated files are on disk when Vercel scans `api/`.
+ *
+ * That root config governs every project built from this repo whose Root
+ * Directory is the repository itself — which is why the landing site carries
+ * its own `landing/vercel.json`. A `vercel.json` inside a project's Root
+ * Directory wins over the one at the repository root; without it, the landing
+ * build inherits this file's buildCommand and dies on a missing script.
  */
 
 import { mkdir, rm } from "node:fs/promises";

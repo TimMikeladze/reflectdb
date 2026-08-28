@@ -98,11 +98,11 @@ vercel env add S3_ACCESS_KEY_ID
 vercel env add S3_SECRET_ACCESS_KEY
 vercel env add S3_PROVIDER       # tigris | r2 | aws | minio | gcs
 vercel env add S3_ENDPOINT       # tigris: https://fly.storage.tigris.dev
-vercel deploy --prod -A vercel.kanban.json
+vercel deploy --prod          # or just push to main
 ```
 
 **Deploy from the repository root, not this directory.** Two constraints force
-it, and both are visible in the root `vercel.kanban.json`:
+it, and both are visible in the root `vercel.json`:
 
 - The example imports reflectdb from `src/`, so the deploy context has to
   include it — deploying this folder alone uploads 17 files and the build fails
@@ -113,11 +113,16 @@ it, and both are visible in the root `vercel.kanban.json`:
   without rewriting those specifiers — the function then boots and dies on
   `ERR_MODULE_NOT_FOUND`. Bundling resolves everything ahead of time.
 
-The config lives in `vercel.kanban.json` rather than `vercel.json`, and every
-deploy has to pass it with `-A`. A `vercel.json` at the repository root applies
-to *every* project built from this repo — including the landing site, whose
-Root Directory is `landing` — so leaving it under the default name pointed that
-project's build at `scripts/build-kanban.ts` and broke it.
+The Vercel project is linked to this repository with its Root Directory left at
+the repository root, so a push to `main` deploys the demo; `vercel deploy` is
+only for deploying a dirty tree.
+
+That root `vercel.json` governs *every* project built from this repo whose Root
+Directory is the repo itself. The landing site sets its Root Directory to
+`landing` and carries its own `landing/vercel.json` — a config inside a Root
+Directory wins over the repository-root one. Deleting `landing/vercel.json`
+would point the landing build at `scripts/build-kanban.ts`, which is not on
+disk from there, and every landing deploy would fail.
 
 New Vercel projects also enable Deployment Protection, which 401s the API. Turn
 it off for a public demo.
