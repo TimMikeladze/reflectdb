@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { positionBetween, sortCards, type Card } from "./schema.ts";
-import { boardIdFrom, closeBoard, createBoard } from "./lib/board.ts";
+import { boardIdFrom, closeBoard, createBoard, createKanbanDriver, openBoard } from "./lib/board.ts";
 import { RESET_INTERVAL_MS, SEED_CARDS, resetIfDue, resetWindow } from "./lib/reset.ts";
 import { POST } from "./api/sync/messages.ts";
 import { GET } from "./api/sync/events.ts";
@@ -441,6 +441,41 @@ describe("the demo board reset", () => {
 		expect(resetWindow(0)).toBe(0);
 		expect(resetWindow(RESET_INTERVAL_MS - 1)).toBe(0);
 		expect(resetWindow(RESET_INTERVAL_MS)).toBe(1);
+	});
+});
+
+describe("an unbootable room", () => {
+	test("is cleared and started over rather than answering 500 forever", async () => {
+		// What took the deployed `demo` board down: the manifest named a snapshot
+		// the bucket no longer had, so every request 500'd — permanently, because
+		// nothing in the request path could get past `init()` to fix it. The cards
+		// are gone either way; the board coming back is the point.
+		// A real handshake, so the room exists on the store with a manifest.
+		await post(
+			"visitor",
+			{ type: "hello", protocolVersion: 1, clientId: "visitor", token: "t" },
+			"demo",
+		);
+
+		const driver = createKanbanDriver();
+
+		const manifestKey = (await driver.list("rooms/demo/")).map((e) => e.key).find((k) =>
+			k.endsWith("_manifest"),
+		)!;
+		const manifest = JSON.parse(
+			new TextDecoder().decode((await driver.get(manifestKey))!.body),
+		);
+		// Point the manifest at a snapshot that was never written — the same shape
+		// as a store that lost the object.
+		manifest.snapshotKey = "rooms/demo/snap/gone-0.json";
+		await driver.put(manifestKey, new TextEncoder().encode(JSON.stringify(manifest)));
+
+		const recovered = await openBoard("demo");
+		try {
+			expect((await recovered.storage.getRow("cards", "nothing")).row).toBeNull();
+		} finally {
+			await closeBoard(recovered);
+		}
 	});
 });
 

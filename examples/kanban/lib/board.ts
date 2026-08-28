@@ -17,7 +17,7 @@
 
 import { MutationError } from "../../../src/core/index.ts";
 import { MessageHandler } from "../../../src/server/handler.ts";
-import { createObjectStorage } from "../../../src/server/storage/object/index.ts";
+import { IncompleteStateError, createObjectStorage, roomPrefix } from "../../../src/server/storage/object/index.ts";
 import { createFilesystemDriver } from "../../../src/server/storage/object/drivers/filesystem.ts";
 import { createS3Driver } from "../../../src/server/storage/object/drivers/s3.ts";
 import type { ObjectStorage } from "../../../src/server/storage/object/index.ts";
@@ -218,6 +218,54 @@ export function createBoard(boardId: string): Board {
  * resumes below HLCs this instance already handed out, and every invocation
  * logs the failure on its way down.
  */
+/**
+ * A board, booted — clearing it first if the store lost an object it named.
+ *
+ * `IncompleteStateError` means the manifest points at a key the bucket no
+ * longer has, which is unrecoverable by design: the adapter refuses to boot
+ * rather than present the loss as an empty room. For a demo board that is the
+ * wrong end state, because the room is disposable — it already resets itself
+ * every five minutes — and the alternative is a board that answers 500 forever,
+ * which is what happened to `demo` when two writers picked the same snapshot
+ * name.
+ *
+ * **Do not copy this into an application that keeps real data.** There the
+ * correct response is to page someone: the refusal is telling you the store
+ * lost an acknowledged write, and clearing the room throws away whatever
+ * survived along with the evidence.
+ */
+export async function openBoard(boardId: string): Promise<Board> {
+	const board = createBoard(boardId);
+	try {
+		await board.storage.init();
+		return board;
+	} catch (error) {
+		await closeQuietly(board);
+		if (!(error instanceof IncompleteStateError)) throw error;
+
+		console.error(
+			`[kanban] room "${boardId}" cannot boot: ${error.key} is gone from the bucket. ` +
+				`Clearing the room and starting it over — the cards it held are lost.`,
+		);
+		const driver = createKanbanDriver();
+		const keys = (await driver.list(roomPrefix(boardId))).map((entry) => entry.key);
+		if (keys.length > 0) await driver.delete(keys);
+
+		const fresh = createBoard(boardId);
+		await fresh.storage.init();
+		return fresh;
+	}
+}
+
+/** Closing a board that never booted is best-effort; the boot error is the one that matters. */
+async function closeQuietly(board: Board): Promise<void> {
+	try {
+		await closeBoard(board);
+	} catch {
+		/* the caller is already handling a failure */
+	}
+}
+
 export async function closeBoard(board: Board): Promise<void> {
 	await board.handler.close();
 	await board.storage.close();

@@ -133,6 +133,31 @@ export class MemoryLimitExceededError extends Error {
 }
 
 /**
+ * The manifest names an object the store does not have.
+ *
+ * Always a hard failure: the manifest is the room's index, so a key it lists
+ * and the store cannot produce means data the room was told was durable is
+ * gone. Booting past it would present the loss as an empty room and then
+ * overwrite whatever survived. Typed rather than a bare `Error` because a
+ * caller whose data is disposable — a demo board, a scratch room — may
+ * legitimately choose to clear the prefix and start over, and that decision
+ * must never be made by matching on a message string.
+ */
+export class IncompleteStateError extends Error {
+	readonly roomId: string;
+	readonly key: string;
+	constructor(roomId: string, key: string, detail: string) {
+		super(
+			`Object storage: object "${key}" named by the manifest for room "${roomId}" is ` +
+				`missing. ${detail}`,
+		);
+		this.name = "IncompleteStateError";
+		this.roomId = roomId;
+		this.key = key;
+	}
+}
+
+/**
  * This instance is not the writer for the room: another holds an unexpired
  * lease, or a renewal failed and the writer self-fenced.
  */

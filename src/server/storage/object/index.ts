@@ -24,7 +24,7 @@
 
 import type { ExistingRow } from "../../conflict.ts";
 import type { OpLogEntry, StorageAdapter } from "../../handler.ts";
-import { OBJECT_STORAGE_DEFAULTS } from "./types.ts";
+import { IncompleteStateError, OBJECT_STORAGE_DEFAULTS } from "./types.ts";
 import type {
 	BatchConfig,
 	CompactionConfig,
@@ -45,9 +45,13 @@ import { createS3Driver } from "./drivers/s3.ts";
 export { createMemoryDriver } from "./drivers/memory.ts";
 export { createFilesystemDriver } from "./drivers/filesystem.ts";
 export { createS3Driver } from "./drivers/s3.ts";
+// Addressing a room's keys from outside — an admin wipe, a disposable demo
+// clearing an unbootable room — needs the same prefix the adapter writes under.
+export { roomPrefix } from "./manifest.ts";
 
 export {
 	BackpressureError,
+	IncompleteStateError,
 	MemoryLimitExceededError,
 	NotWriterError,
 	PreconditionFailedError,
@@ -268,9 +272,10 @@ export function createObjectStorage(
 				// absence means the store lost data the room was told was durable —
 				// booting on an empty state would present that loss as an empty room
 				// and then overwrite the remaining segments with new writes.
-				throw new Error(
-					`Object storage: snapshot "${record.snapshotKey}" named by the manifest for ` +
-						`room "${resolved.roomId}" is missing. Refusing to boot with incomplete state.`,
+				throw new IncompleteStateError(
+					resolved.roomId,
+					record.snapshotKey,
+					"Refusing to boot with incomplete state.",
 				);
 			}
 			state.loadSnapshot(decodeJson<SnapshotRecord>(object.body, record.snapshotKey));
@@ -398,11 +403,22 @@ export function createObjectStorage(
 		}
 
 		const snapshot = state.toSnapshot();
-		// Named by epoch and sequence, not by HLC: an HLC embeds the node id, which
+		// Named by writer and sequence, not by HLC: an HLC embeds the node id, which
 		// routinely contains characters (`:`) that are illegal in a filename on
 		// Windows and awkward in a URL. The manifest records the key, so the name
 		// carries no meaning of its own.
-		const key = `${prefix}snap/${manifest.epoch}-${snapshotSeq++}.json`;
+		//
+		// The token is the writer id under `"optimistic"`, exactly as WAL segment
+		// names are (`WalWriter.flushOnce`), and for the same reason: there is no
+		// lease there, so every instance reads the same manifest epoch and two
+		// cold invocations both name their first snapshot `snap/0-0.json`. The
+		// second commit then pushes that key into `pendingGc` while setting it as
+		// the live `snapshotKey`, and an hour later GC deletes the object the
+		// manifest points at — the room is bricked, permanently, with
+		// `IncompleteStateError` on every boot. That is not hypothetical: it is
+		// what took out the kanban demo's `demo` board.
+		const token = resolved.concurrency === "optimistic" ? resolved.writerId : String(manifest.epoch);
+		const key = `${prefix}snap/${token}-${snapshotSeq++}.json`;
 		await driver.put(key, encodeJson(snapshot));
 
 		const deletableAt = clock.now() + resolved.compaction.gcGraceMs;
@@ -472,10 +488,22 @@ export function createObjectStorage(
 		const now = clock.now();
 		const due = manifest.manifest.pendingGc.filter((entry) => entry.deletableAt <= now);
 		if (due.length === 0) return;
+
+		// Never delete a key the manifest currently names, however it got onto the
+		// list. `pendingGc` records what a commit SUPERSEDED, so a key that is live
+		// again means two writers picked the same name — the failure mode that
+		// bricked a room before snapshot keys carried the writer id. Belt to that
+		// braces: the entry is still dropped from `pendingGc` below, and if the key
+		// is superseded later, that commit puts it back.
+		const live = new Set<string>();
+		if (manifest.manifest.snapshotKey) live.add(manifest.manifest.snapshotKey);
+		for (const segment of manifest.manifest.walSegs) live.add(segment.key);
+		const deletable = due.filter((entry) => !live.has(entry.key));
+
 		// Delete first, then forget: an absent key is not an error on delete, so a
 		// crash between the two costs one wasted retry. The reverse order would
 		// leak objects nothing references and nothing will ever revisit.
-		await driver.delete(due.map((entry) => entry.key));
+		if (deletable.length > 0) await driver.delete(deletable.map((entry) => entry.key));
 		await manifest.commit((next) => {
 			next.pendingGc = next.pendingGc.filter((entry) => entry.deletableAt > now);
 		});
@@ -637,9 +665,10 @@ export function createObjectStorage(
 				// and moved to pendingGc.
 				const object = await driver.get(next.snapshotKey);
 				if (!object) {
-					throw new Error(
-						`Object storage: snapshot "${next.snapshotKey}" named by the manifest for ` +
-							`room "${resolved.roomId}" is missing. Refusing to serve incomplete state.`,
+					throw new IncompleteStateError(
+						resolved.roomId,
+						next.snapshotKey,
+						"Refusing to serve incomplete state.",
 					);
 				}
 				state.loadSnapshot(decodeJson<SnapshotRecord>(object.body, next.snapshotKey));

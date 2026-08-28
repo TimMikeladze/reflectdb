@@ -10,7 +10,7 @@
  */
 
 import type { ClientMessage } from "../../../../src/core/types.ts";
-import { boardIdFrom, closeBoard, createBoard } from "../../lib/board.ts";
+import { type Board, boardIdFrom, closeBoard, openBoard } from "../../lib/board.ts";
 import { resetIfDue } from "../../lib/reset.ts";
 
 /** Node runtime rather than edge: the S3 driver signs with WebCrypto and streams responses. */
@@ -36,7 +36,7 @@ export async function POST(request: Request): Promise<Response> {
 	}
 
 	const boardId = boardIdFrom(url);
-	const board = createBoard(boardId);
+	const board = await openBoard(boardId);
 	try {
 		// Before the session is rebuilt, so a visitor whose arrival triggers the
 		// reset is never handed the previous window's cards in their bootstrap
@@ -76,7 +76,7 @@ export async function POST(request: Request): Promise<Response> {
  * hard-coding it here.
  */
 async function restoreSession(
-	board: ReturnType<typeof createBoard>,
+	board: Board,
 	clientId: string,
 	message: ClientMessage,
 ): Promise<void> {

@@ -6,6 +6,7 @@ import { createFilesystemDriver } from "../../../../src/server/storage/object/dr
 import { createMemoryDriver } from "../../../../src/server/storage/object/drivers/memory.ts";
 import {
 	createObjectStorage,
+	IncompleteStateError,
 	type ObjectStorage,
 } from "../../../../src/server/storage/object/index.ts";
 import { ProcessMemoryBudget } from "../../../../src/server/storage/object/state.ts";
@@ -262,6 +263,94 @@ describe("object storage: compaction", () => {
 		expect(replayed.length).toBeGreaterThan(0);
 		expect(replayed.length).toBeLessThan(12);
 		for (const op of replayed) expect(op.hlc > cutoff!).toBe(true);
+	});
+
+	test("two optimistic writers never name their snapshots the same key", async () => {
+		// Regression. Under `"optimistic"` there is no lease, so every instance
+		// reads the same manifest epoch — and a snapshot key built from that epoch
+		// made two cold invocations both write `snap/0-0.json`. The second commit
+		// then listed that key as superseded AND as the live snapshot, and GC
+		// deleted the object the manifest points at. It bricked the deployed kanban
+		// demo's board permanently: `IncompleteStateError` on every boot after.
+		const driver = createMemoryDriver();
+		const shared = {
+			roomId: "twin-writers",
+			concurrency: "optimistic" as const,
+			compaction: { afterSegments: 5 },
+		};
+		const a = open(driver, shared);
+		const b = open(driver, shared);
+		await a.init();
+		await b.init();
+
+		await writeUntilCompacted(a, 12);
+		await b.refresh();
+		for (let i = 0; i < 12; i++) {
+			await b.applyOp!("posts", `b${i}`, { id: `b${i}` }, {}, hlc(100 + i), "insert", null);
+		}
+
+		// Every snapshot each writer wrote is still on the store — the default
+		// one-hour GC grace has not elapsed — and the names carry the writer, so
+		// the two instances' snapshots never land on the same key. Before the fix
+		// both wrote `snap/0-<seq>` and each overwrote the other's.
+		const snapshots = [...driver.dump().keys()].filter((k) => k.includes("/snap/"));
+		const writers = new Set(snapshots.map((k) => k.split("/snap/")[1]!.split("-").slice(0, -1).join("-")));
+		expect(writers.size).toBe(2);
+		expect(snapshots.length).toBe(4);
+	});
+
+	test("GC never deletes an object the manifest currently names", async () => {
+		// The second half of the same bug, and the half that actually destroys the
+		// room: a key can end up listed as superseded AND as the live snapshot.
+		// Unique names make that unreachable now, so this stages the state
+		// directly — the guard is what stands between a manifest that lists its own
+		// snapshot as garbage and a permanently unbootable room.
+		const driver = createMemoryDriver();
+		const first = open(driver, {
+			roomId: "gc-guard",
+			compaction: { afterSegments: 5, gcGraceMs: 0 },
+		});
+		await first.init();
+		await writeUntilCompacted(first, 12);
+		await first.close();
+
+		const manifestKey = [...driver.dump().keys()].find((k) => k.endsWith("_manifest"))!;
+		const current = (await driver.get(manifestKey))!;
+		const record = JSON.parse(new TextDecoder().decode(current.body));
+		expect(record.snapshotKey).toBeTruthy();
+		record.pendingGc.push({ key: record.snapshotKey, deletableAt: 0 });
+		await driver.put(manifestKey, new TextEncoder().encode(JSON.stringify(record)), {
+			ifMatch: current.etag,
+		});
+
+		// Any commit runs maintenance, which is where collection happens.
+		const second = open(driver, { roomId: "gc-guard", compaction: { gcGraceMs: 0 } });
+		await second.init();
+		await second.applyOp!("posts", "later", { id: "later" }, {}, hlc(500), "insert", null);
+		await second.close();
+
+		const third = open(driver, { roomId: "gc-guard" });
+		await third.init();
+		expect((await third.getRow("posts", "r11")).row).toEqual({ id: "r11" });
+	});
+
+	test("a snapshot the store lost throws IncompleteStateError, not a bare Error", async () => {
+		// The type is the contract: a caller whose data is disposable may clear the
+		// room and start over, and that decision must not hang on a message string.
+		const driver = createMemoryDriver();
+		const first = open(driver, {
+			roomId: "lost-snapshot",
+			compaction: { afterSegments: 5, gcGraceMs: 0 },
+		});
+		await first.init();
+		await writeUntilCompacted(first, 12);
+		await first.close();
+
+		const snapshot = [...driver.dump().keys()].find((k) => k.includes("/snap/"))!;
+		await driver.delete([snapshot]);
+
+		const second = open(driver, { roomId: "lost-snapshot" });
+		await expect(second.init()).rejects.toThrow(IncompleteStateError);
 	});
 
 	test("the cutoff never moves backwards", async () => {

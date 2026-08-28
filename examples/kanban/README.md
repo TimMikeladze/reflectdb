@@ -140,6 +140,13 @@ routes are written against web `Request`/`Response`, which is what Vercel's own
 response headers before the first event and destroys the body stream when the
 client disconnects — that is what the SSE route's `cancel` hook listens for.
 
+A board that cannot boot clears itself. `openBoard` catches
+`IncompleteStateError` — the manifest naming an object the bucket no longer has
+— wipes the room's prefix and starts it over. That is right *here*, where a
+board reseeds every five minutes anyway, and wrong in an application holding
+real data: there the refusal is telling you the store lost an acknowledged
+write, and clearing the room destroys what survived along with the evidence.
+
 New Vercel projects also enable Deployment Protection, which 401s the API. Turn
 it off for a public demo.
 

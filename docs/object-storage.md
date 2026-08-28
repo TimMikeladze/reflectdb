@@ -98,10 +98,17 @@ dropped by an HLC comparison.
   _lease                       CAS'd. writer election + fencing epoch
   _manifest                    CAS'd. {epoch, commitSeq, lastWriter, snapshotKey,
                                snapshotHlc, walSegs[], oplogHead, meta, pendingGc[]}
-  wal/<epoch>-<seq>.jsonl      immutable op batches. name is unique, no CAS needed
-  snap/<hlc>.json              materialized rows (phase 1)
+  wal/<token>-<seq>.jsonl      immutable op batches. name is unique, no CAS needed
+  snap/<token>-<seq>.json      materialized rows (phase 1)
   snap/<table>-<hlc>.parquet   materialized rows (phase 3, DuckDB)
 ```
+
+`<token>` is the fencing epoch under `"single-writer"` and the instance's
+`writerId` under `"optimistic"`. The distinction is load-bearing, not cosmetic:
+without a lease every instance reads the same epoch, so an epoch-named key is
+the same key on every instance. Two of them then write one object, and the
+commit that supersedes it lists the key it is still pointing at as garbage —
+an hour later GC deletes the live snapshot and the room never boots again.
 
 Only `_lease` and `_manifest` are ever overwritten, and both only via CAS.
 Everything else is write-once, which is what makes concurrent readers safe.
@@ -396,9 +403,10 @@ count rather than on a clock:
 when walSegs.length >= compaction.afterSegments (200)
    or walBytes    >= compaction.afterBytes (64MB):
 
-  write snap/<hlc>            full materialized row state
+  write snap/<token>-<seq>     full materialized row state
   CAS manifest { snapHlc, walSegs: [] }
   schedule delayed GC of the superseded segments
+                              (never of a key the manifest still names)
 ```
 
 Still activity-gated: segment count only grows from writes, so idle stays free.

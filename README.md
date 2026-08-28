@@ -1344,6 +1344,7 @@ import {
   createObjectStorage,
   createS3Driver, createFilesystemDriver, createMemoryDriver,
   PreconditionFailedError, BackpressureError, NotWriterError, MemoryLimitExceededError,
+  IncompleteStateError, roomPrefix,
 } from "reflectdb/server/storage/object";
 ```
 
@@ -1358,7 +1359,9 @@ import {
 | `health` | `"healthy"`, `"degraded"` or `"unavailable"`, with `onHealthChange(cb)` to observe transitions. |
 | `durableHlc` | Highest HLC known to be on the store, with `onDurable(cb)` fired per batch. |
 
-Errors are typed so a caller can tell "someone else moved first" from a transport failure: `PreconditionFailedError` (a CAS lost), `BackpressureError` (the write buffer hit `batch.maxBufferBytes`), `NotWriterError` (this instance lost or never held the lease), `MemoryLimitExceededError` (room state exceeded `memory.maxRoomBytes`).
+Errors are typed so a caller can tell "someone else moved first" from a transport failure: `PreconditionFailedError` (a CAS lost), `BackpressureError` (the write buffer hit `batch.maxBufferBytes`), `NotWriterError` (this instance lost or never held the lease), `MemoryLimitExceededError` (room state exceeded `memory.maxRoomBytes`), `IncompleteStateError` (the manifest names an object the store does not have — the room refuses to boot rather than present the loss as an empty room).
+
+`roomPrefix(roomId)` returns the key prefix a room writes under, for tooling that has to address those keys from outside the adapter — an admin wipe, or a disposable room clearing itself after an `IncompleteStateError`.
 
 Pass `store` and the S3 driver is built for you; pass `driver` to supply one directly:
 

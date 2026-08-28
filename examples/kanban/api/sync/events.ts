@@ -14,7 +14,7 @@
  */
 
 import type { ClientMessage } from "../../../../src/core/types.ts";
-import { type Board, boardIdFrom, closeBoard, createBoard } from "../../lib/board.ts";
+import { type Board, boardIdFrom, closeBoard, openBoard } from "../../lib/board.ts";
 import { resetIfDue, resetWindow } from "../../lib/reset.ts";
 
 export const config = { runtime: "nodejs", maxDuration: 300 };
@@ -74,10 +74,9 @@ export async function GET(request: Request): Promise<Response> {
 	if (!clientId) return new Response("clientId is required", { status: 400 });
 
 	const boardId = boardIdFrom(url);
-	const board = createBoard(boardId);
 	// Boot before the first poll so the first tick compares against real state
 	// rather than reporting the whole board as "changed".
-	await board.storage.init();
+	const board = await openBoard(boardId);
 
 	// The window this stream has already checked. A tab left open for an hour
 	// still sees the board reset on schedule, because the poll loop below
