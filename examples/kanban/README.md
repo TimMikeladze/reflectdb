@@ -98,11 +98,11 @@ vercel env add S3_ACCESS_KEY_ID
 vercel env add S3_SECRET_ACCESS_KEY
 vercel env add S3_PROVIDER       # tigris | r2 | aws | minio | gcs
 vercel env add S3_ENDPOINT       # tigris: https://fly.storage.tigris.dev
-vercel deploy --prod
+vercel deploy --prod -A vercel.kanban.json
 ```
 
 **Deploy from the repository root, not this directory.** Two constraints force
-it, and both are visible in the root `vercel.json`:
+it, and both are visible in the root `vercel.kanban.json`:
 
 - The example imports reflectdb from `src/`, so the deploy context has to
   include it — deploying this folder alone uploads 17 files and the build fails
@@ -112,6 +112,12 @@ it, and both are visible in the root `vercel.json`:
   `.ts` extensions, and Vercel's Node builder rewrites the entry file to `.js`
   without rewriting those specifiers — the function then boots and dies on
   `ERR_MODULE_NOT_FOUND`. Bundling resolves everything ahead of time.
+
+The config lives in `vercel.kanban.json` rather than `vercel.json`, and every
+deploy has to pass it with `-A`. A `vercel.json` at the repository root applies
+to *every* project built from this repo — including the landing site, whose
+Root Directory is `landing` — so leaving it under the default name pointed that
+project's build at `scripts/build-kanban.ts` and broke it.
 
 New Vercel projects also enable Deployment Protection, which 401s the API. Turn
 it off for a public demo.

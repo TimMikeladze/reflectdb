@@ -1045,10 +1045,11 @@ board costing something.
 | Payload validation with `MutationError` rather than coercion | `cards.mutate` in [`lib/board.ts`](./examples/kanban/lib/board.ts) |
 | Lazy periodic reset claimed with create-if-absent, applied through `applyServerOp` | [`lib/reset.ts`](./examples/kanban/lib/reset.ts) |
 | Fractional positioning for drag-and-drop ordering | [`schema.ts`](./examples/kanban/schema.ts) |
-| Bundling the API routes so Vercel's Node builder never sees a `.ts` specifier | [`scripts/build-kanban.ts`](./scripts/build-kanban.ts) / [`vercel.json`](./vercel.json) |
+| Bundling the API routes so Vercel's Node builder never sees a `.ts` specifier | [`scripts/build-kanban.ts`](./scripts/build-kanban.ts) / [`vercel.kanban.json`](./vercel.kanban.json) |
 
-Deploy from the repository root rather than the example directory — the example
-imports reflectdb from `src/`, and the root `vercel.json` bundles the two API
+Deploy from the repository root rather than the example directory, passing the
+config explicitly (`vercel deploy --prod -A vercel.kanban.json`) — the example
+imports reflectdb from `src/`, and `vercel.kanban.json` bundles the two API
 routes before Vercel's function build. The variables to set, and the one extra
 `storage.init()` step MinIO needs, are in
 [`examples/kanban/README.md`](./examples/kanban/README.md).
