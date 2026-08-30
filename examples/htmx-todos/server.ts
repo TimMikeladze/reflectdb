@@ -40,10 +40,17 @@ server.implement("todos", {
 			return;
 		}
 		const existing = todos.get(op.rowId);
+		const payload = op.payload as Partial<Todo>;
 		todos.set(op.rowId, {
 			...(existing ?? { id: op.rowId, text: "", done: false, createdAt: Date.now() }),
-			...(op.payload as Partial<Todo>),
+			...payload,
 			id: op.rowId,
+			// `serverSet` stamps its columns on every op, not just the insert, so
+			// `payload.createdAt` is the time of THIS write. Keeping it would make
+			// createdAt a last-touched time and send every toggled row to the end
+			// of the view's sort — the list visibly reshuffling as people tick
+			// things. The row's birth time is whatever it already had.
+			createdAt: existing?.createdAt ?? payload.createdAt ?? Date.now(),
 		});
 	},
 	serverSet: { createdAt: () => Date.now() },
