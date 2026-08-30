@@ -127,6 +127,11 @@ export function resolveOperation(
 		}
 		const bodyRowId = typeof payload.id === "string" && payload.id ? payload.id : undefined;
 		const generated = options.generateRowId?.() ?? crypto.randomUUID();
+		// An `id` that named the row is consumed, not stored. The store
+		// materializes the primary key from the row id already, so leaving it in
+		// would be a duplicate on the default `id` pk — and a stray data column
+		// on a table whose pk is named anything else.
+		if (bodyRowId !== undefined) delete payload.id;
 		return { kind: "insert", table, rowId: bodyRowId ?? generated, payload };
 	}
 

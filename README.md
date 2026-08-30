@@ -1002,6 +1002,7 @@ The action grammar is REST-shaped, so the attributes read like ordinary htmx:
 GET    reflect:<table>            → render the collection view
 GET    reflect:<table>/:id        → render one row
 POST   reflect:<table>            → insert (row id from the body's `id`, else generated)
+                                    a body `id` names the row; it is not stored as a column
 PUT    reflect:<table>/:id        → update
 PATCH  reflect:<table>/:id        → update
 DELETE reflect:<table>/:id        → delete
@@ -1017,6 +1018,7 @@ Worth knowing:
 - Query params reach the view for filtering (`reflect:todos?done=false`); they do not change the server subscription. Declare that with `tables`, or with `reflect.sync.sync(table, { params })`.
 - A row read whose row is missing answers `204`, leaving existing markup alone instead of blanking it.
 - A view returns a raw HTML string — escape interpolated values yourself.
+- A bad action or an unregistered view answers 4xx/5xx, which htmx swaps nowhere by default, and a `reflect:` request never reaches the network tab. The adapter `console.error`s every one of them so the failure is not silent.
 - Checkboxes, radios and `<option>`s are re-synced from the rendered markup after a store-driven re-render. Once a user clicks one, the HTML spec stops letting the `checked`/`selected` attribute drive the property, and htmx's morph only fixes that up for `value` — so a peer's change would otherwise leave a ticked box on a row the store says is open.
 
 ## Whiteboard + Pictionary example

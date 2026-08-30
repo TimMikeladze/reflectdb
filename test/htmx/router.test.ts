@@ -78,21 +78,30 @@ describe("resolveOperation", () => {
 		});
 	});
 
-	test("POST prefers an id supplied in the body", () => {
+	test("POST prefers an id supplied in the body, and consumes it", () => {
 		const op = resolveOperation(
 			"reflect:todos",
 			"POST",
 			new URLSearchParams({ id: "chosen", text: "x" }),
 			{ generateRowId: () => "generated-1" },
 		);
-		expect(op).toMatchObject({ kind: "insert", rowId: "chosen" });
+		// `id` named the row; it is not also a column. The store materializes the
+		// primary key from the row id, so keeping it would duplicate the default
+		// `id` pk and invent a stray column on a table whose pk is named
+		// something else.
+		expect(op).toEqual({
+			kind: "insert",
+			table: "todos",
+			rowId: "chosen",
+			payload: { text: "x" },
+		});
 	});
 
 	test("PUT and PATCH update the addressed row", () => {
 		for (const verb of ["PUT", "PATCH"]) {
-			expect(
-				resolveOperation("reflect:todos/a", verb, new URLSearchParams({ text: "y" })),
-			).toEqual({ kind: "update", table: "todos", rowId: "a", payload: { text: "y" } });
+			expect(resolveOperation("reflect:todos/a", verb, new URLSearchParams({ text: "y" }))).toEqual(
+				{ kind: "update", table: "todos", rowId: "a", payload: { text: "y" } },
+			);
 		}
 	});
 

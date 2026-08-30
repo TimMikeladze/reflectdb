@@ -386,6 +386,13 @@ function html(markup: string): Promise<Response> {
 }
 
 function respond(status: number, message = ""): Promise<Response> {
+	// htmx swaps nothing for a 4xx/5xx unless the element opts in with
+	// `hx-status:*`, and it only console.errors events carrying `detail.error` —
+	// which `htmx:response:error` does not. A `reflect:` request never reaches
+	// the network tab either, being served from memory. So an unregistered view
+	// or a malformed action fails completely silently. Say it out loud: every
+	// status this reports is the adapter's own diagnosis, not a server's.
+	if (status >= 400) console.error(message);
 	// 204 must carry a null body or the Response constructor throws.
 	return Promise.resolve(
 		new Response(status === 204 ? null : message, { status, headers: HTML_HEADERS }),
