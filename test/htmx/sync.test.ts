@@ -18,6 +18,31 @@ function element(): FakeElement {
 	return { isConnected: true, html: null, status: 0 };
 }
 
+/**
+ * A swap target holding one checkbox, enough for `resyncToggles`: the DOM
+ * property is whatever a click last left it at, the content attribute is
+ * whatever the freshly swapped markup says.
+ */
+interface FakeToggleTarget extends FakeElement {
+	checkbox: { checked: boolean; tagName: string; hasAttribute(name: string): boolean };
+	querySelectorAll(selector: string): FakeToggleTarget["checkbox"][];
+	matches(selector: string): boolean;
+}
+
+function toggleTarget(): FakeToggleTarget {
+	const target: FakeToggleTarget = {
+		...element(),
+		checkbox: {
+			checked: false,
+			tagName: "INPUT",
+			hasAttribute: (name) => name === "checked" && (target.html ?? "").includes("checked"),
+		},
+		querySelectorAll: () => [target.checkbox],
+		matches: () => false,
+	};
+	return target;
+}
+
 class FakeDocument {
 	listeners = new Map<string, Set<(event: Event) => void>>();
 
@@ -190,6 +215,37 @@ describe("createHtmxSync", () => {
 		await htmx.ajax("DELETE", "reflect:todos/t1", { source: element() });
 		await tick();
 		expect(list.html).toBe("");
+	});
+
+	test("a peer's change re-checks a checkbox the user has already clicked", async () => {
+		// Once clicked, a checkbox's dirty flag stops the `checked` attribute from
+		// driving the property, and htmx's morph only fixes that up for `value`.
+		// Without the resync, a peer un-ticking the row would leave this tab's box
+		// ticked while the rest of the row rendered as open.
+		reflect.view<{ id: string; done: boolean }>("todos", ({ rows }) =>
+			rows.map((row) => `<input type="checkbox"${row.done ? " checked" : ""}>`).join(""),
+		);
+		const list = toggleTarget();
+		await htmx.ajax("GET", "reflect:todos", { source: list });
+
+		await htmx.ajax("POST", "reflect:todos", {
+			source: element(),
+			body: new URLSearchParams({ id: "t1", done: "true" }),
+		});
+		await tick();
+		expect(list.html).toBe('<input type="checkbox" checked>');
+
+		// The user clicked it, so the property is theirs now.
+		list.checkbox.checked = true;
+
+		await htmx.ajax("PUT", "reflect:todos/t1", {
+			source: element(),
+			body: new URLSearchParams({ done: "" }),
+		});
+		await tick();
+
+		expect(list.html).toBe('<input type="checkbox">');
+		expect(list.checkbox.checked).toBe(false);
 	});
 
 	test("a row read renders just that row", async () => {

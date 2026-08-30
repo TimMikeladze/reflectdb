@@ -1017,6 +1017,7 @@ Worth knowing:
 - Query params reach the view for filtering (`reflect:todos?done=false`); they do not change the server subscription. Declare that with `tables`, or with `reflect.sync.sync(table, { params })`.
 - A row read whose row is missing answers `204`, leaving existing markup alone instead of blanking it.
 - A view returns a raw HTML string — escape interpolated values yourself.
+- Checkboxes, radios and `<option>`s are re-synced from the rendered markup after a store-driven re-render. Once a user clicks one, the HTML spec stops letting the `checked`/`selected` attribute drive the property, and htmx's morph only fixes that up for `value` — so a peer's change would otherwise leave a ticked box on a row the store says is open.
 
 ## Whiteboard + Pictionary example
 

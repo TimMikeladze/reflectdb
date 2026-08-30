@@ -91,6 +91,8 @@ export interface HtmxSync {
 
 const HTML_HEADERS = { "Content-Type": "text/html; charset=utf-8" };
 
+const TOGGLE_SELECTOR = 'input[type="checkbox"],input[type="radio"],option';
+
 // ── Factory ────────────────────────────────────────────────────────────
 
 export function createHtmxSync(config: HtmxSyncConfig): HtmxSync {
@@ -98,10 +100,7 @@ export function createHtmxSync(config: HtmxSyncConfig): HtmxSync {
 	const sync = createSync(syncConfig);
 	// htmx renames the `:` in its event names when `config.metaCharacter` is set,
 	// so the name is resolved from the instance rather than hardcoded.
-	const configRequestEvent = "htmx:config:request".replace(
-		/:/g,
-		htmx.config?.metaCharacter || ":",
-	);
+	const configRequestEvent = "htmx:config:request".replace(/:/g, htmx.config?.metaCharacter || ":");
 
 	const views = new Map<string, ReflectView<never>>();
 	const parsers = new Map<string, ReflectParse<never>>();
@@ -175,12 +174,16 @@ export function createHtmxSync(config: HtmxSyncConfig): HtmxSync {
 			// from the source, so a source that has since been swapped away cannot
 			// redirect the update. `confirm` is cleared: a live update is not a user
 			// action, and re-prompting on every peer edit would be intolerable.
-			void htmx.ajax("GET", entry.action, {
-				source: entry.source.isConnected ? entry.source : target,
-				target,
-				swap: entry.swap,
-				confirm: null,
-			});
+			void htmx
+				.ajax("GET", entry.action, {
+					source: entry.source.isConnected ? entry.source : target,
+					target,
+					swap: entry.swap,
+					confirm: null,
+				})
+				.then(() => {
+					resyncToggles(target);
+				});
 		}
 	}
 
@@ -342,6 +345,38 @@ export function createHtmxSync(config: HtmxSyncConfig): HtmxSync {
 	};
 
 	return api;
+}
+
+/**
+ * Re-apply `checked` and `selected` from the markup to the DOM property.
+ *
+ * Once a user clicks a checkbox or picks an option, that control's dirty flag
+ * is set and the HTML spec stops letting the content attribute drive the
+ * property. htmx's morph fixes this up for an input's `value` but not for
+ * `checked` or `selected`, so a control the user has touched keeps showing
+ * their last click even after a peer's op moves the row the other way — the
+ * box stays ticked while the rest of the row renders as open.
+ *
+ * Only reached on a store-driven re-render, where the markup is by definition
+ * the current truth. Guarded so the DOM-less test runner (and any swap into a
+ * detached target) is a no-op.
+ */
+function resyncToggles(target: Element): void {
+	const scope = target as Element & {
+		querySelectorAll?: (selector: string) => ArrayLike<Element>;
+		matches?: (selector: string) => boolean;
+	};
+	if (!scope.querySelectorAll) return;
+	const controls = Array.from(scope.querySelectorAll(TOGGLE_SELECTOR));
+	if (scope.matches?.(TOGGLE_SELECTOR)) controls.push(scope);
+	for (const control of controls) {
+		// `tagName`, not `instanceof`: the adapter is imported into DOM-less
+		// runners where `HTMLOptionElement` is not a global.
+		const property = control.tagName === "OPTION" ? "selected" : "checked";
+		const attribute = control.hasAttribute(property);
+		const toggle = control as Element & Record<typeof property, boolean>;
+		if (toggle[property] !== attribute) toggle[property] = attribute;
+	}
 }
 
 // ── Response helpers ───────────────────────────────────────────────────
