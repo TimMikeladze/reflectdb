@@ -406,6 +406,8 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 			broadcastChanges: (table, excludeClientId) => this.broadcastChanges(table, excludeClientId),
 			forgetWriterRow: (table, clientId, rowId) =>
 				this.broadcast.forgetWriterRow(table, clientId, rowId),
+			recordWriterColumns: (table, clientId, rowId, columns) =>
+				this.broadcast.recordWriterColumns(table, clientId, rowId, columns),
 		});
 
 		this.transport.onConnect((clientId) => {

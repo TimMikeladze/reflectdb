@@ -153,6 +153,33 @@ export class BroadcastEngine<TAuth extends AuthContext = AuthContext> {
 	}
 
 	/**
+	 * Record the columns the writer just applied optimistically, in every query
+	 * that depends on `tableName`.
+	 *
+	 * `broadcastChanges` skips the writer, and `commit` only runs inside
+	 * `sendToSubscriber` — so without this the writer's cached result never
+	 * advances past the state it held before its own write. See
+	 * `ResultCache.patchRow` for what that costs.
+	 *
+	 * @param columns — only the columns the server accepted FROM this op and the
+	 *   client kept locally. Server-owned (`serverSet`) columns must not be
+	 *   included: the client strips those from its optimistic row, so claiming
+	 *   them here is how the writer would stop being told its own `createdAt`.
+	 */
+	recordWriterColumns(
+		tableName: string,
+		clientId: string,
+		rowId: string,
+		columns: Record<string, unknown>,
+	): void {
+		const affectedQueries = this.deps.tableDependencyIndex.get(tableName);
+		if (!affectedQueries) return;
+		for (const queryName of affectedQueries) {
+			this.deps.resultCache.patchRow(clientId, queryName, rowId, columns);
+		}
+	}
+
+	/**
 	 * After a write to `tableName`, re-run every dependent query and send each
 	 * subscriber the rows that changed for them.
 	 *

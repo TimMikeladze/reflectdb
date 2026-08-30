@@ -5,6 +5,7 @@ import type { StorageAdapter } from "../../src/server/handler.ts";
 import { createWsServerTransport } from "../../src/transport/ws.ts";
 import type { WebSocketLike } from "../../src/transport/ws.ts";
 import { PROTOCOL_VERSION } from "../../src/core/types.ts";
+import { packHlc } from "../../src/core/hlc.ts";
 import type { ClientMessage, ServerMessage, ClientTransport } from "../../src/core/types.ts";
 
 // ── In-memory storage ───────────────────────────────────────────────────────
@@ -286,6 +287,141 @@ describe("End-to-end sync flow", () => {
 		expect(deltaA).toBeUndefined();
 	});
 
+	// ── The writer's own cached result set ───────────────────────────────
+	//
+	// A writer is excluded from the fanout of its own op because it already
+	// applied it optimistically. The server still has to advance that client's
+	// cached result set by hand, or the cache keeps describing the row as it was
+	// BEFORE the write and a peer setting the column back to that value diffs as
+	// "no change".
+
+	/** Two clients subscribed to `todos`, seeded with one row. */
+	async function twoClients(serverSet?: Record<string, unknown>) {
+		const serverWs = createWsServerTransport();
+		const storage = createInMemoryStorage();
+		await storage.putRow("todos", "t1", { id: "t1", text: "a", done: false }, {}, "0.0.seed");
+
+		const handler = new MessageHandler({ transport: serverWs, serverId: "wc", db: { storage } });
+		handler.setStorage(storage);
+		handler.setAuth(async () => ({ userId: "u" }));
+		handler.setQuery("todos", {
+			name: "todos",
+			callback: async (_ctx: unknown, db: { storage: StorageAdapter }) =>
+				(await db.storage.getRows("todos")).rows,
+			tableDependencies: new Set(["todos"]),
+			options: {
+				tables: ["todos"],
+				conflict: "lww",
+				...(serverSet ? { serverSet } : {}),
+				mutate: async (op) => {
+					if (op.type === "delete") return storage.putRow("todos", op.rowId, null, {}, op.hlc);
+					const prev = (await storage.getRow("todos", op.rowId)).row ?? {};
+					await storage.putRow(
+						"todos",
+						op.rowId,
+						{ ...prev, ...op.payload, id: op.rowId },
+						{},
+						op.hlc,
+					);
+				},
+			},
+		});
+
+		const received: Record<string, ServerMessage[]> = { A: [], B: [] };
+		for (const id of ["A", "B"] as const) {
+			const ws: WebSocketLike = {
+				send: (d) => {
+					received[id]!.push(JSON.parse(d as string));
+				},
+				close() {},
+			};
+			serverWs.handleOpen(id, ws);
+			serverWs.handleMessage(
+				id,
+				JSON.stringify({
+					type: "hello",
+					protocolVersion: PROTOCOL_VERSION,
+					clientId: id,
+					token: "valid",
+				}),
+			);
+			serverWs.handleMessage(id, JSON.stringify({ type: "sync_declare", table: "todos" }));
+		}
+		await tick();
+		for (const id of ["A", "B"]) {
+			serverWs.handleMessage(id, JSON.stringify({ type: "bootstrap", tables: ["todos"] }));
+		}
+		await tick();
+
+		let counter = 0;
+		const write = async (client: "A" | "B", payload: Record<string, unknown>) => {
+			counter += 1;
+			serverWs.handleMessage(
+				client,
+				JSON.stringify({
+					type: "ops",
+					token: "valid",
+					ops: [
+						{
+							id: `op-${counter}`,
+							table: "todos",
+							op: "update",
+							rowId: "t1",
+							payload,
+							hlc: packHlc({ ms: Date.now() + counter, counter: 0, nodeId: `client:${client}` }),
+						},
+					],
+				}),
+			);
+			await tick();
+		};
+
+		const deltasTo = (client: "A" | "B") =>
+			received[client]!.filter((m) => m.type === "delta").map(
+				(m) => (m as { payload: Record<string, unknown> }).payload,
+			);
+
+		return { received, write, deltasTo };
+	}
+
+	test("a peer reverting a column the writer just wrote still reaches the writer", async () => {
+		const { received, write, deltasTo } = await twoClients();
+
+		// A sets done=true. A is excluded from the fanout of its own op.
+		await write("A", { done: true });
+		received.A!.length = 0;
+
+		// B sets it back to false — the value A's cached result set held before
+		// A's write. Without the writer-cache patch this diffs as "no change"
+		// and A is never told, leaving the two clients permanently diverged.
+		await write("B", { done: false });
+
+		expect(deltasTo("A")).toEqual([{ done: false }]);
+	});
+
+	test("a peer setting a different value still reaches the writer", async () => {
+		const { received, write, deltasTo } = await twoClients();
+
+		await write("A", { done: true });
+		received.A!.length = 0;
+
+		await write("B", { text: "b" });
+
+		expect(deltasTo("A")).toEqual([{ text: "b" }]);
+	});
+
+	test("the writer is still told the serverSet columns it never applied", async () => {
+		// The client strips serverSet fields from its optimistic row, so the
+		// writer's cache must NOT claim them — otherwise this delta disappears.
+		const { received, write, deltasTo } = await twoClients({ orgId: "org-1" });
+
+		received.A!.length = 0;
+		await write("A", { done: true });
+		await write("B", { text: "b" });
+
+		expect(deltasTo("A")).toEqual([{ text: "b", orgId: "org-1" }]);
+	});
+
 	test("rejected op reverts client state", async () => {
 		const { client: clientTransport, serverWs, mockWs } = createLoopbackTransport();
 
@@ -340,7 +476,10 @@ describe("End-to-end sync flow", () => {
 
 		// Client tries to insert into existing row (conflict with server)
 		client.insert("posts", "existing-row", { title: "client-version" });
-		expect(client.getRow("posts", "existing-row")).toEqual({ id: "existing-row", title: "client-version" });
+		expect(client.getRow("posts", "existing-row")).toEqual({
+			id: "existing-row",
+			title: "client-version",
+		});
 
 		await client.push();
 		await tick();

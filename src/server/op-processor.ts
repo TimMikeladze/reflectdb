@@ -60,6 +60,48 @@ export interface OpProcessorDeps<TAuth extends AuthContext> {
 	 * of the same rowId diffs as a partial update against that dead row.
 	 */
 	forgetWriterRow(tableName: string, clientId: string, rowId: string): void;
+	/**
+	 * Advance the writer's own cached result set by the columns it just applied
+	 * optimistically. Same reason as `forgetWriterRow`, for the other ops: with
+	 * the writer skipped by the fanout, nothing else moves its cache off the
+	 * pre-write row, so a peer setting one of those columns back to its old
+	 * value diffs as "no change" and the writer never hears about it.
+	 */
+	recordWriterColumns(
+		tableName: string,
+		clientId: string,
+		rowId: string,
+		columns: Record<string, unknown>,
+	): void;
+}
+
+/**
+ * The columns of `row` that this op wrote and the client is holding locally.
+ *
+ * A column belongs here only if its clock was stamped by THIS op — that is what
+ * separates a column the server accepted from one the `merge` policy dropped in
+ * favour of a newer value, which the client still has to be told about.
+ * `serverSet` columns are excluded because the client strips them from its own
+ * optimistic row (see the store's `applyOptimistic`), so it is not holding them
+ * and must still receive them by delta.
+ */
+function writerHeldColumns(
+	row: Record<string, unknown> | null,
+	colClocks: Record<string, string>,
+	opHlc: string,
+	serverSet: Record<string, unknown> | undefined,
+): Record<string, unknown> | null {
+	if (!row) return null;
+	const columns: Record<string, unknown> = {};
+	let any = false;
+	for (const [column, clock] of Object.entries(colClocks)) {
+		if (column === "_row" || clock !== opHlc) continue;
+		if (serverSet && column in serverSet) continue;
+		if (!(column in row)) continue;
+		columns[column] = row[column];
+		any = true;
+	}
+	return any ? columns : null;
 }
 
 /**
@@ -447,6 +489,9 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 		// later re-insert of the same rowId diffs against a row that is gone.
 		if (op.op === "delete") {
 			this.deps.forgetWriterRow(op.table, session.clientId, op.rowId);
+		} else {
+			const held = writerHeldColumns(mergedRow, colClocks, hlcStr, enforcedOptions.serverSet);
+			if (held) this.deps.recordWriterColumns(op.table, session.clientId, op.rowId, held);
 		}
 
 		// Broadcast delta directly to subscribers (skip result cache diffing)
@@ -608,6 +653,14 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 			// diffs as an update against the row that no longer exists.
 			if (op.op === "delete") {
 				this.deps.forgetWriterRow(op.table, session.clientId, op.rowId);
+			} else {
+				const held = writerHeldColumns(
+					result.resolvedRow,
+					result.updatedColClocks,
+					op.hlc,
+					options.serverSet,
+				);
+				if (held) this.deps.recordWriterColumns(op.table, session.clientId, op.rowId, held);
 			}
 
 			// Collect affected tables for deferred broadcast (batch path) or broadcast immediately

@@ -127,6 +127,36 @@ export class ResultCache {
 	}
 
 	/**
+	 * Merge the columns a writer applied optimistically into its cached row.
+	 *
+	 * The writer is excluded from the fanout of its own write, so nothing else
+	 * advances its cache: it keeps describing the row as it was BEFORE the
+	 * write. A peer that later sets one of those columns back to that stale
+	 * value then diffs as "no change" and the writer is never told, so the two
+	 * clients stay diverged until an unrelated write or a reconnect. A checkbox
+	 * two people toggle is the everyday shape of this.
+	 *
+	 * Only columns already present in the cached row are merged, and only for a
+	 * row the cache already holds. The cache mirrors query *results*, which a
+	 * projecting or joining query may shape differently from the table — adding
+	 * a key the result never carries would make the next `fieldDiff` report it
+	 * as removed and emit a phantom `null`. Under-claiming is safe (it costs one
+	 * redundant delta); over-claiming is the bug this method exists to fix.
+	 */
+	patchRow(
+		clientId: string,
+		queryName: string,
+		rowId: string,
+		columns: Record<string, unknown>,
+	): void {
+		const cached = this.cache.get(clientId)?.get(queryName)?.get(rowId);
+		if (!cached) return;
+		for (const [key, value] of Object.entries(columns)) {
+			if (key in cached) cached[key] = value;
+		}
+	}
+
+	/**
 	 * Forget one row of one client's cached result.
 	 *
 	 * The cache mirrors what a client is believed to hold, and a writer is
