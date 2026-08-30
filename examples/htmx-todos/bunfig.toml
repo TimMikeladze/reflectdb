@@ -1,0 +1,8 @@
+[install]
+linker = "hoisted"
+
+# htmx 4.0.0 shipped 2026-08-28 and is younger than the global
+# `minimumReleaseAge` window, which would otherwise refuse to resolve it.
+# Scoped to this example rather than the repo root so the policy still covers
+# everything else.
+minimumReleaseAgeExcludes = ["htmx.org"]

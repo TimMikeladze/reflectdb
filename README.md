@@ -47,9 +47,11 @@ You bring your own types and your own database. reflectdb handles the protocol, 
   - [High availability with Postgres](#high-availability-with-postgres)
   - [Sync with no database at all](#sync-with-no-database-at-all)
   - [Serverless sync on Vercel](#serverless-sync-on-vercel)
+  - [htmx 4 bindings](#htmx-4-bindings)
 - [Whiteboard + Pictionary example](#whiteboard--pictionary-example)
 - [Infinite Tetris example](#infinite-tetris-example)
 - [Multiplayer kanban example](#multiplayer-kanban-example)
+- [htmx todos example](#htmx-todos-example)
 - [Architecture](#architecture)
 - [Core Concepts](#core-concepts)
   - [Hybrid Logical Clocks](#hybrid-logical-clocks)
@@ -65,6 +67,7 @@ You bring your own types and your own database. reflectdb handles the protocol, 
   - [`reflectdb/react`](#reflectdbreact)
   - [`reflectdb/svelte`](#reflectdbsvelte)
   - [`reflectdb/vanilla`](#reflectdbvanilla)
+  - [`reflectdb/htmx`](#reflectdbhtmx)
   - [`reflectdb/transport/*`](#reflectdbtransport)
 - [Configuration Reference](#configuration-reference)
   - [Query definition](#query-definition)
@@ -86,13 +89,15 @@ You bring your own types and your own database. reflectdb handles the protocol, 
 |------|--------|----------------------|
 | **Infinite multiplayer Tetris** | [Play live](https://reflectdb-tetris.fly.dev/) · [source](./examples/tetris/) | Optimistic input prediction, server reconciliation and gravity, a live leaderboard, per-player progression, and Bun SQLite persistence in one perpetual game. Open two tabs to add another player. |
 | **Multiplayer kanban** | [Open the board](https://reflectdb-kanban.vercel.app/) · [source](./examples/kanban/) | A board whose entire durable state is an S3 bucket — no Postgres, no SQLite, no volume — running on Vercel functions. Shows leaseless optimistic concurrency and serverless SSE. Open two tabs and drag a card. |
+| **htmx 4 todos** | [Open it](https://reflectdb-htmx-todos.fly.dev/) · [source](./examples/htmx-todos/) | htmx owns the DOM, reflectdb owns the data. Attributes point at `reflect:` actions instead of server routes, so the server renders no HTML at all — every fragment comes from the local store. Open two tabs, or stop typing and go offline. The list resets to its seed rows every minute. |
 | **Collaborative whiteboard** | [Draw live](https://reflectdb-whiteboard.fly.dev/) · [source](./examples/whiteboard/) | Freeform drawing by default, optional Pictionary rounds, guest-authenticated rooms, ephemeral cursors, chat, presence, and per-user query results. Rooms and everything in them are deleted 30 minutes after they are created. Open two tabs to draw with yourself. |
 
-Tetris and the whiteboard each run on one auto-stopping Fly Machine with no
-volume, so the first load after an idle period may take a moment. The kanban
-board has no machine to wake — it is Vercel functions and a bucket — but every
-board resets on a five-minute window. All three keep their data intentionally
-ephemeral across deployments and Machine replacement.
+Tetris, the whiteboard and the htmx todos each run on one auto-stopping Fly
+Machine with no volume, so the first load after an idle period may take a
+moment. The kanban board has no machine to wake — it is Vercel functions and a
+bucket — but every board resets on a five-minute window, and the htmx todos
+reset every minute. All four keep their data intentionally ephemeral across
+deployments and Machine replacement.
 
 ## Why reflectdb
 
@@ -134,7 +139,7 @@ Optional bits (use what you want):
 - **High availability** — shared Postgres + optional cross-instance polling
 - **No database at all** — `createObjectStorage` runs a room with an S3-compatible bucket as the only durable store, group-committing one object per batch
 - **Runs serverless** — SSE in `serverless` mode answers each POST with the replies it produced, so sync works on Vercel, Lambda or Workers
-- **Framework bindings** — React hooks, Svelte stores, and a vanilla-JS helper; the core client works anywhere
+- **Framework bindings** — React hooks, Svelte stores, a vanilla-JS helper, and htmx 4 attribute bindings; the core client works anywhere
 - **Ephemeral channels** — presence, cursors, typing indicators that never touch the op log, with a room snapshot on join and a pluggable adapter (Redis included) so presence spans a fleet
 - **Typed presence** — `presence()` in the schema, `usePresence()` in the component, key derived for you
 - **Read-only views** — `view()` entries that recompute on their dependencies and reject writes at both levels
@@ -175,13 +180,14 @@ Peer dependencies are all optional:
 
 ```bash
 bun add react         # for reflectdb/react
+bun add htmx.org@^4   # for reflectdb/htmx
 bun add drizzle-orm   # if you want auto-inferred row types from Drizzle tables
 # Svelte + vanilla have no peer deps
 ```
 
 ## Quick Start
 
-A complete sync server in ~30 lines. No ORM, no database — just plain types and an in-memory Map.
+A complete sync server in ~30 lines. No ORM, no database — just plain types and an in-memory Map, handed to reflectdb as `db`.
 
 ### 1. Define your schema
 
@@ -217,7 +223,10 @@ import { queries, type Todo } from "./schema";
 const todos = new Map<string, Todo>();
 const transport = createWsServerTransport();
 
-const server = createSyncServer({ queries, transport, serverId: "s1" });
+// `db` is whatever holds your data — an ORM handle, a pool, or a plain Map.
+// It is not optional: reflectdb only runs a `query` callback when it has a
+// `db` to pass it, so leaving it out makes every snapshot come back empty.
+const server = createSyncServer({ queries, db: todos, transport, serverId: "s1" });
 
 server.auth(async (req) => {
   // validate req.headers.get("authorization")
@@ -225,7 +234,7 @@ server.auth(async (req) => {
 });
 
 server.implement("todos", {
-  query: () => [...todos.values()],
+  query: (_ctx, db) => [...db.values()],
   mutate: async (op) => {
     if (op.type === "delete") todos.delete(op.rowId);
     else todos.set(op.rowId, { id: op.rowId, ...(op.payload as Partial<Todo>) } as Todo);
@@ -938,6 +947,77 @@ setInterval(async () => {
 
 `MessageHandler` is exported from `reflectdb/server`; the example drives it directly rather than through `createSyncServer`, because a serverless route needs `whenIdle` and `pollRemoteChanges`. Set the matching `serverless: true` on `createSseClientTransport`. Two more things a serverless deployment owns, both worked through in the kanban example: the client's session and subscriptions are rebuilt per invocation, because the `hello` and `sync_declare` went to a different process, and the stream instance must `bootstrap` so its result cache holds what the client is actually holding — the broadcast engine sends a diff against that cache, and an empty one makes every existing row look new.
 
+### htmx 4 bindings
+
+`reflectdb/htmx` lets htmx drive the DOM while reflectdb owns the data. Bindings point at a `reflect:` action instead of a server route, so reads and writes resolve against the local store — optimistic, offline-capable, and re-rendered whenever a peer's change arrives. htmx 4 core ships no SSE or WebSocket support of its own; sync stays reflectdb's job.
+
+```ts
+import htmx from "htmx.org";
+import { createHtmxSync } from "reflectdb/htmx";
+
+const reflect = createHtmxSync({
+  htmx,
+  url: "ws://localhost:3001/sync",
+  token,
+  tables: ["todos"],
+});
+
+reflect.view<Todo>("todos", ({ rows }) =>
+  rows
+    .map(
+      (todo) => `
+        <li>
+          <input type="checkbox" ${todo.done ? "checked" : ""}
+                 hx-put="reflect:todos/${todo.id}"
+                 hx-vals='{"done": "${!todo.done}"}'>
+          ${escapeHtml(todo.text)}
+          <button hx-delete="reflect:todos/${todo.id}">&times;</button>
+        </li>`,
+    )
+    .join(""),
+);
+
+// Form bodies arrive as strings — coerce before they reach the op log.
+reflect.parse<Todo>("todos", (payload) => ({
+  ...payload,
+  done: payload.done === "true",
+}));
+
+await reflect.connect();
+```
+
+```html
+<ul hx-get="reflect:todos" hx-trigger="load" hx-swap="innerMorph"></ul>
+
+<form hx-post="reflect:todos">
+  <input name="text" required>
+  <input type="hidden" name="done" value="false">
+  <button>Add</button>
+</form>
+```
+
+The action grammar is REST-shaped, so the attributes read like ordinary htmx:
+
+```
+GET    reflect:<table>            → render the collection view
+GET    reflect:<table>/:id        → render one row
+POST   reflect:<table>            → insert (row id from the body's `id`, else generated)
+PUT    reflect:<table>/:id        → update
+PATCH  reflect:<table>/:id        → update
+DELETE reflect:<table>/:id        → delete
+```
+
+Writes answer `204 No Content`, so htmx swaps nothing where the write happened. The store change then re-renders every bound element a beat later — one render path whether the edit came from this tab, another tab, or the server.
+
+Worth knowing:
+
+- An element binds by making its first `reflect:` read, so give collection bindings `hx-trigger="load"`.
+- Use an inner swap (`innerHTML`, `innerMorph`) on collection bindings. `outerHTML` replaces the bound element itself, and a replacement still carrying `hx-trigger="load"` would re-request forever.
+- `hx-swap="innerMorph"` is usually what you want: htmx 4 morphs in place, so focus and caret position survive a re-render.
+- Query params reach the view for filtering (`reflect:todos?done=false`); they do not change the server subscription. Declare that with `tables`, or with `reflect.sync.sync(table, { params })`.
+- A row read whose row is missing answers `204`, leaving existing markup alone instead of blanking it.
+- A view returns a raw HTML string — escape interpolated values yourself.
+
 ## Whiteboard + Pictionary example
 
 A complete React + Bun + Drizzle app that exercises most of reflectdb in one
@@ -1054,6 +1134,36 @@ it; the demo's Vercel project is linked to this repository at the repository
 root. The variables to set, and the one extra `storage.init()` step MinIO needs,
 are in [`examples/kanban/README.md`](./examples/kanban/README.md).
 
+## htmx todos example
+
+A todo list where htmx 4 owns the DOM and reflectdb owns the data:
+[`examples/htmx-todos/`](./examples/htmx-todos/). It is live at
+[reflectdb-htmx-todos.fly.dev](https://reflectdb-htmx-todos.fly.dev/). The
+server renders no HTML — every fragment is produced in the browser from the
+local store. The deployed list resets to its seed rows every minute.
+
+```bash
+cd examples/htmx-todos
+bun install
+bun run dev
+# open http://localhost:3005 in two tabs
+```
+
+The server takes the first free port at or above `PORT` (default 3005), so it
+does not collide with the other examples.
+
+| Pattern | Where |
+|---------|-------|
+| `reflect:` actions on ordinary htmx attributes | [`index.html`](./examples/htmx-todos/index.html) |
+| One view function rendering the whole list from local rows | [`client.ts`](./examples/htmx-todos/client.ts) |
+| `parse` building a patch, so a checkbox toggle keeps the text it never sent | [`client.ts`](./examples/htmx-todos/client.ts) |
+| A counter riding along as an `hx-swap-oob` element | [`client.ts`](./examples/htmx-todos/client.ts) |
+| Filters as query params, kept across peers' edits | [`index.html`](./examples/htmx-todos/index.html) |
+| A periodic reset routed through `applyServerOp`, so it reaches every open tab | [`server.ts`](./examples/htmx-todos/server.ts) |
+
+Stop the server and keep typing: writes land in the DOM immediately, the badge
+counts them, and they drain on reconnect.
+
 ## Architecture
 
 ```
@@ -1119,11 +1229,12 @@ are in [`examples/kanban/README.md`](./examples/kanban/README.md).
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    FRAMEWORK BINDINGS  (react/, svelte/, vanilla/)          │
+│            FRAMEWORK BINDINGS  (react/, svelte/, vanilla/, htmx/)           │
 │                                                                             │
 │   • createSyncReact(queries)   → typed hooks + <SyncProvider>               │
 │   • createSyncSvelte(queries)  → typed Svelte stores                        │
 │   • createSyncVanilla(queries) → typed callback API                         │
+│   • createSyncHtmx(queries)    → typed views behind reflect: attributes     │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1242,7 +1353,7 @@ reflectdb keeps its own store alongside yours, and it helps to know which one an
 
 | Read | Source |
 |------|--------|
-| Snapshots (`bootstrap`, `resume`) | **Your database**, via the `query` callback |
+| Snapshots (`bootstrap`, `resume`) | **Your database**, via the `query` callback — which only runs when `db` was passed to `createSyncServer` |
 | Broadcast deltas | **Your database**, diffed against a per-client cached result set |
 | Conflict resolution (`lww` / `merge` / `server` / custom) | **reflectdb's mirror** — a JSONB row store plus per-column HLCs |
 | Which tables changed since an HLC | **reflectdb's op log** |
@@ -1477,19 +1588,40 @@ store.onError((e) => …);
 ```ts
 import { createSync, createSyncVanilla, createBrowserWsTransport } from "reflectdb/vanilla";
 
-const sync = createSync({ url, token, tables: ["notes"] });
+const sync = createSync({ url, token, tables: ["notes"], onError: (e) => … });
 const notes = sync.sync<Note>("notes");
 
-notes.onChange((rows) => render(rows));
+notes.onChange(() => render(notes.getRows()));
 notes.insert(id, { title: "…" });
 
 sync.onStateChange((s) => …);
 sync.onPendingChange((n) => …);
-sync.onError((e) => …);
 sync.connect();
 ```
 
-Also supports ephemeral: `sync.sendEphemeral({ key, userId, data })`, `sync.onEphemeral(key, listener)`.
+Also supports ephemeral: `sync.ephemeral({ key, userId, ttlMs })` returns a binding with `broadcast(data)`, `getEvents()` and `onChange(listener)`.
+
+### `reflectdb/htmx`
+
+```ts
+import { createHtmxSync, createSyncHtmx } from "reflectdb/htmx";
+
+const reflect = createHtmxSync({ htmx, url, token, tables: ["todos"] });
+
+reflect.view<Todo>("todos", ({ rows, rowId, params }) => "<li>…</li>");
+reflect.parse<Todo>("todos", (payload) => ({ …payload, done: payload.done === "true" }));
+
+reflect.install();          // attach the reflect: shim (connect() does this too)
+reflect.uninstall();        // detach it and drop every element binding
+reflect.refresh("todos");   // re-render bound elements on demand
+reflect.sync;               // the underlying VanillaSync, for anything attributes cannot express
+
+await reflect.connect();
+```
+
+Requires htmx 4 — import the instance yourself and pass it in. The adapter listens for `htmx:config:request` and sets `ctx.fetch` on `reflect:` actions, so htmx still performs the swap, OOB handling, settling and history it would for a server response.
+
+`createSyncHtmx<typeof queries>()` returns the same factory with `view`, `parse` and `refresh` narrowed to your schema's table names and row types. See [htmx 4 bindings](#htmx-4-bindings) for the action grammar.
 
 ### `reflectdb/transport/*`
 
@@ -2035,7 +2167,8 @@ src/
 ├── transport/    WebSocket (runtime-agnostic + Bun.serve), SSE, polling
 ├── react/        <SyncProvider>, hooks, typed factory
 ├── svelte/       createSyncStore, typed factory
-└── vanilla/      createSync, typed factory
+├── vanilla/      createSync, typed factory
+└── htmx/         createHtmxSync, reflect: action router, typed factory
 ```
 
 ### Tech stack

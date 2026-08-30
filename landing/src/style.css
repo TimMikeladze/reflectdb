@@ -1792,6 +1792,114 @@ footer a:hover {
 	opacity: 1;
 }
 
+/* ── htmx todos preview ────────────────────────────────────────────── */
+
+.hx-attr {
+	font-family: var(--mono);
+	font-size: 10.5px;
+	color: var(--muted);
+	background: var(--bg-2);
+	border-radius: 4px;
+	padding: 7px 10px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.hx-attr em {
+	font-style: normal;
+	color: var(--fg);
+	opacity: 0.55;
+}
+
+.hx-list {
+	display: grid;
+	gap: 2px;
+	margin: 8px 0;
+	padding: 0;
+	list-style: none;
+}
+
+.hx-list li {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	font-size: 12px;
+	color: var(--fg);
+	padding: 7px 10px;
+	border-bottom: 1px solid var(--line);
+}
+
+.hx-list li:last-child {
+	border-bottom: 0;
+}
+
+.hx-list li.done {
+	color: var(--muted);
+	text-decoration: line-through;
+}
+
+.hx-list li em {
+	margin-left: auto;
+	font-family: var(--mono);
+	font-style: normal;
+	font-size: 10px;
+	color: var(--accent);
+}
+
+.hx-list li.queued {
+	color: var(--muted);
+}
+
+.hx-box {
+	flex: none;
+	width: 12px;
+	height: 12px;
+	border: 1px solid var(--line);
+	border-radius: 3px;
+}
+
+.hx-box.checked {
+	background: var(--accent);
+	border-color: var(--accent);
+}
+
+.hx-wire {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	font-family: var(--mono);
+	font-size: 11px;
+	color: var(--muted);
+	background: var(--bg-2);
+	border-radius: 4px;
+	padding: 7px 10px;
+	margin-top: 6px;
+}
+
+.hx-wire em {
+	font-style: normal;
+	font-size: 9px;
+	letter-spacing: 0.1em;
+	color: var(--fg);
+	opacity: 0.55;
+}
+
+.hx-wire small {
+	margin-left: auto;
+	font-size: 10px;
+}
+
+.hx-wire.committed,
+.hx-wire.committed em {
+	color: var(--accent);
+}
+
+.hx-wire.committed em {
+	opacity: 1;
+}
+
+
 @media (prefers-reduced-motion: reduce) {
 	.kanban-card.moving rect {
 		animation: none;

@@ -27,6 +27,7 @@ const entry = [
 	"src/react/index.ts",
 	"src/svelte/index.ts",
 	"src/vanilla/index.ts",
+	"src/htmx/index.ts",
 	"src/client/storage/indexeddb.ts",
 	"src/server/ephemeral/index.ts",
 	"src/server/ephemeral/redis.ts",

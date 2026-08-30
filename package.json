@@ -12,6 +12,8 @@
 		"drizzle-orm",
 		"eventual-consistency",
 		"hlc",
+		"htmx",
+		"hypermedia",
 		"hybrid-logical-clock",
 		"indexeddb",
 		"kysely",
@@ -170,6 +172,16 @@
 			"require": {
 				"types": "./dist/cjs/svelte/index.d.cts",
 				"default": "./dist/cjs/svelte/index.cjs"
+			}
+		},
+		"./htmx": {
+			"import": {
+				"types": "./dist/htmx/index.d.ts",
+				"default": "./dist/htmx/index.js"
+			},
+			"require": {
+				"types": "./dist/cjs/htmx/index.d.cts",
+				"default": "./dist/cjs/htmx/index.cjs"
 			}
 		},
 		"./vanilla": {

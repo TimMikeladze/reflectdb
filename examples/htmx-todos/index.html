@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>reflectdb + htmx 4 todos</title>
+		<style>
+			:root {
+				color-scheme: light dark;
+				--bg: #fbfbfa;
+				--fg: #1b1b19;
+				--muted: #6f6f6a;
+				--line: #e2e2dd;
+				--accent: #3a6ea5;
+			}
+			@media (prefers-color-scheme: dark) {
+				:root {
+					--bg: #17171a;
+					--fg: #ececea;
+					--muted: #8f8f8a;
+					--line: #2c2c31;
+					--accent: #7aa7d4;
+				}
+			}
+			* { box-sizing: border-box; }
+			body {
+				margin: 0;
+				padding: 3rem 1.25rem;
+				background: var(--bg);
+				color: var(--fg);
+				font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+				display: flex;
+				justify-content: center;
+			}
+			main { width: min(34rem, 100%); }
+			h1 { font-size: 1.35rem; margin: 0 0 .25rem; }
+			.sub { color: var(--muted); margin: 0 0 1.5rem; font-size: .875rem; }
+			#composer { display: flex; gap: .5rem; margin-bottom: 1rem; }
+			input[type="text"] {
+				flex: 1;
+				padding: .55rem .7rem;
+				border: 1px solid var(--line);
+				border-radius: .4rem;
+				background: transparent;
+				color: inherit;
+				font: inherit;
+			}
+			button {
+				border: 1px solid var(--line);
+				border-radius: .4rem;
+				background: transparent;
+				color: inherit;
+				padding: .55rem .9rem;
+				font: inherit;
+				cursor: pointer;
+			}
+			button:hover { border-color: var(--accent); color: var(--accent); }
+			.filters { display: flex; gap: .35rem; margin-bottom: 1rem; }
+			.filters button { padding: .3rem .65rem; font-size: .8125rem; }
+			ul { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+			li {
+				display: flex;
+				align-items: center;
+				gap: .65rem;
+				padding: .6rem .2rem;
+				border-bottom: 1px solid var(--line);
+			}
+			li.done .text { text-decoration: line-through; color: var(--muted); }
+			li.empty { color: var(--muted); justify-content: center; padding: 1.5rem; }
+			.text { flex: 1; }
+			.remove { border: 0; color: var(--muted); font-size: 1.1rem; line-height: 1; padding: .2rem .4rem; }
+			footer {
+				display: flex;
+				justify-content: space-between;
+				gap: 1rem;
+				margin-top: 1rem;
+				color: var(--muted);
+				font-size: .8125rem;
+			}
+			#pending:not(:empty) { color: var(--accent); }
+			.error:not(:empty) {
+				margin: 1rem 0 0;
+				padding: .5rem .7rem;
+				border: 1px solid #b3453c;
+				border-radius: .4rem;
+				color: #b3453c;
+				font-size: .8125rem;
+			}
+		</style>
+
+	</head>
+	<body>
+		<main>
+			<h1>Todos</h1>
+			<p class="sub">
+				Rendered in the browser from reflectdb's local store. Open a second tab —
+				or go offline and keep typing. The list resets every minute.
+			</p>
+
+			<form id="composer" hx-post="reflect:todos">
+				<input type="text" name="text" placeholder="What needs doing?" required autocomplete="off">
+				<input type="hidden" name="done" value="false">
+				<button type="submit">Add</button>
+			</form>
+
+			<div class="filters">
+				<button hx-get="reflect:todos" hx-target="#list" hx-swap="innerMorph">All</button>
+				<button hx-get="reflect:todos?filter=open" hx-target="#list" hx-swap="innerMorph">Open</button>
+				<button hx-get="reflect:todos?filter=done" hx-target="#list" hx-swap="innerMorph">Done</button>
+			</div>
+
+			<ul id="list" hx-get="reflect:todos" hx-trigger="load" hx-swap="innerMorph"></ul>
+
+			<p id="error" class="error"></p>
+
+			<footer>
+				<span id="remaining"></span>
+				<span><span id="pending"></span> <span id="status">connecting</span></span>
+			</footer>
+		</main>
+
+		<script type="module" src="/client.js"></script>
+	</body>
+</html>

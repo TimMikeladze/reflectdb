@@ -474,6 +474,18 @@ notes.onChange(render);
 notes.insert(crypto.randomUUID(), { title: "hello" });
 sync.connect();`;
 
+export const B_HTMX = `import htmx from "htmx.org";   // 4.x — npm "latest" is still 2.x
+import { createHtmxSync } from "reflectdb/htmx";
+
+const reflect = createHtmxSync({ htmx, url, token, tables: ["todos"] });
+
+reflect.view<Todo>("todos", ({ rows }) => rows.map(renderRow).join(""));
+await reflect.connect();
+
+// <ul hx-get="reflect:todos" hx-trigger="load" hx-swap="innerMorph"></ul>
+// <form hx-post="reflect:todos">…</form>
+// <button hx-delete="reflect:todos/\${id}">×</button>`;
+
 export const B_CORE = `import { createSyncClient } from "reflectdb/client";
 import { createBrowserWsTransport } from "reflectdb/vanilla";
 

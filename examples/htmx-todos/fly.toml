@@ -1,0 +1,27 @@
+app = "reflectdb-htmx-todos"
+primary_region = "sjc"
+kill_signal = "SIGTERM"
+kill_timeout = 5
+
+[build]
+  dockerfile = "Dockerfile"
+  # The image builds against src/ and the root lockfile, so the build context is
+  # the repository root:
+  #   flyctl deploy . --config examples/htmx-todos/fly.toml
+  # .github/workflows/deploy-demos.yml discovers this file and does exactly that
+  # on a green main.
+
+[env]
+NODE_ENV = "production"
+PORT = "8080"
+
+[http_service]
+internal_port = 8080
+force_https = true
+auto_stop_machines = "stop"
+auto_start_machines = true
+min_machines_running = 0
+
+[[vm]]
+size = "shared-cpu-1x"
+memory = "256mb"

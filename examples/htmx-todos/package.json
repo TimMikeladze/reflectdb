@@ -1,0 +1,15 @@
+{
+	"name": "reflectdb-htmx-todos-example",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "bun --hot --watch server.ts"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.2.23"
+	},
+	"dependencies": {
+		"htmx.org": "^4.0.0"
+	}
+}

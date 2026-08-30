@@ -6,6 +6,7 @@ import * as S from "./snippets.ts";
 const REPO = "https://github.com/TimMikeladze/reflectdb";
 const TETRIS_DEMO = "https://reflectdb-tetris.fly.dev/";
 const WHITEBOARD_DEMO = "https://reflectdb-whiteboard.fly.dev/";
+const HTMX_DEMO = "https://reflectdb-htmx-todos.fly.dev/";
 const KANBAN_DEMO = "https://reflectdb-kanban.vercel.app/";
 const PRESENCE_SERVICE = `${REPO}/tree/main/services/presence`;
 
@@ -17,6 +18,7 @@ const ROTATING = [
 	"TypeScript",
 	"React",
 	"Svelte",
+	"htmx",
 	"vanilla JS",
 	"Bun",
 	"Node",
@@ -611,6 +613,50 @@ export function renderApp(root: HTMLElement): void {
           <div class="demo-preview-footer"><span>one bucket · zero servers</span><strong>open →</strong></div>
         </a>
       </article>
+
+      <article class="demo-feature">
+        <div class="demo-copy">
+          <div class="demo-status"><span></span>deployed on fly · htmx 4.0 · no server-rendered html</div>
+          <h4>htmx 4 todos</h4>
+          <p>
+            htmx owns the DOM, reflectdb owns the data. The attributes point at a
+            <code>reflect:</code> action instead of a server route, so every read and write
+            resolves against the local store — and the server renders no HTML at all.
+          </p>
+          <ul class="demo-facts">
+            <li><code>hx-get</code> reads, <code>hx-post</code> / <code>hx-put</code> / <code>hx-delete</code> write</li>
+            <li>writes answer 204; the store change re-renders what is bound</li>
+            <li>htmx still does the swapping, morphing and out-of-band updates</li>
+            <li>works offline — writes queue and drain on reconnect</li>
+            <li>a server-side reset every minute lands in every open tab</li>
+          </ul>
+          <div class="demo-actions">
+            <a class="btn primary" href="${HTMX_DEMO}">open the demo →</a>
+            <a class="btn" href="${REPO}/tree/main/examples/htmx-todos">view source</a>
+          </div>
+          <p class="demo-hint">Open two tabs, or stop the network and keep typing. The list resets every minute. The first load may take a moment while the Fly Machine starts.</p>
+        </div>
+
+        <a class="demo-preview" href="${HTMX_DEMO}" aria-label="Open the htmx 4 todos demo">
+          <div class="demo-chrome">
+            <span class="demo-chrome-dot"></span>
+            <span>reflectdb-htmx-todos.fly.dev</span>
+            <span class="demo-synced">synced</span>
+          </div>
+          <div class="demo-board">
+            <div class="hx-attr"><em>&lt;ul</em> hx-get="reflect:todos" hx-swap="innerMorph"<em>&gt;</em></div>
+            <ul class="hx-list">
+              <li><span class="hx-box"></span>ship the htmx adapter</li>
+              <li class="done"><span class="hx-box checked"></span>review the docs</li>
+              <li><span class="hx-box"></span>verify in two tabs</li>
+              <li class="queued"><span class="hx-box"></span>written while offline<em>unsynced</em></li>
+            </ul>
+            <div class="hx-wire"><em>POST</em>reflect:todos<small>204 · no swap</small></div>
+            <div class="hx-wire committed"><em>OP</em>todos/insert<small>re-rendered from the local store</small></div>
+          </div>
+          <div class="demo-preview-footer"><span>3 left · the server sent no HTML</span><strong>open →</strong></div>
+        </a>
+      </article>
     `,
 		)}
 
@@ -826,18 +872,28 @@ export function renderApp(root: HTMLElement): void {
     ${section(
 			"bindings",
 			"framework bindings",
-			"Hooks, stores, callbacks — or none of them",
+			"Hooks, stores, callbacks, attributes — or none of them",
 			`
       <div class="grid-2">
         ${code("reflectdb/react", S.B_REACT)}
         ${code("reflectdb/svelte", S.B_SVELTE)}
         ${code("reflectdb/vanilla", S.B_VANILLA)}
+        ${code("reflectdb/htmx", S.B_HTMX)}
         ${code("reflectdb/client — works in Node, Bun, Deno, Workers", S.B_CORE)}
       </div>
       <p class="note">
         Every binding is a thin layer over the same client. The typed factories
         (<code>createSyncReact</code>, <code>createSyncSvelte</code>,
-        <code>createSyncVanilla</code>) infer row and param types straight from your schema.
+        <code>createSyncVanilla</code>, <code>createSyncHtmx</code>) infer row and param
+        types straight from your schema.
+      </p>
+      <p class="note">
+        The htmx binding points ordinary attributes at a <code>reflect:</code> action
+        instead of a server route, so reads and writes resolve against the local store —
+        optimistic, offline-capable, and re-rendered when a peer's op lands. htmx still
+        does the swapping, morphing and out-of-band updates.
+        <a href="${HTMX_DEMO}">Open the live demo</a> or read
+        <a href="${REPO}/tree/main/examples/htmx-todos">its source</a>.
       </p>
     `,
 		)}

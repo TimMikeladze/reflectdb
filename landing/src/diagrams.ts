@@ -1030,8 +1030,8 @@ export const modules = frame(880, 386, (id) => {
 			832,
 			44,
 			[
-				"reflectdb/react · /svelte · /vanilla",
-				"hooks, stores and callbacks over the same client — or use the client directly",
+				"reflectdb/react · /svelte · /vanilla · /htmx",
+				"hooks, stores, callbacks and attributes over the same client — or use it directly",
 			],
 			{ tone: "g" },
 		),
