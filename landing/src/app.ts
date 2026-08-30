@@ -323,6 +323,21 @@ export function renderApp(root: HTMLElement): void {
           </svg>
           <span class="hero-mini-label"><strong>kanban</strong><em>no database, just a bucket</em></span>
         </a>
+
+        <a class="hero-mini" href="${HTMX_DEMO}">
+          <svg viewBox="0 0 96 52" aria-hidden="true">
+            <g class="mini-todo">
+              <rect class="box" x="12" y="9" width="7" height="7" rx="1.5" />
+              <path class="line" d="M25 12.5h48" />
+              <rect class="box done" x="12" y="22" width="7" height="7" rx="1.5" />
+              <path class="line done" d="M25 25.5h40" />
+              <path class="strike" d="M25 25.5h40" />
+              <rect class="box" x="12" y="35" width="7" height="7" rx="1.5" />
+              <path class="line" d="M25 38.5h53" />
+            </g>
+          </svg>
+          <span class="hero-mini-label"><strong>htmx</strong><em>attributes, no server HTML</em></span>
+        </a>
       </div>
     </section>
 

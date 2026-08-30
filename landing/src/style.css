@@ -523,6 +523,33 @@ section {
 	stroke: var(--accent);
 }
 
+.mini-todo .box {
+	fill: none;
+	stroke: var(--line);
+	stroke-width: 1;
+}
+
+.mini-todo .box.done {
+	fill: var(--accent);
+	stroke: var(--accent);
+}
+
+.mini-todo .line {
+	stroke: var(--line);
+	stroke-width: 3;
+	stroke-linecap: round;
+}
+
+.mini-todo .line.done {
+	opacity: 0.5;
+}
+
+.mini-todo .strike {
+	stroke: var(--muted);
+	stroke-width: 1;
+	stroke-linecap: round;
+}
+
 /* One column below the point where 240px of tiles stops leaving the headline
    a readable measure. The tiles stay — they are the page's best argument —
    but they wrap into rows instead of a column. */
