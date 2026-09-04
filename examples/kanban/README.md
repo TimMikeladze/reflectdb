@@ -71,6 +71,13 @@ work. A `resets/<board>/<window>` key created with `If-None-Match: *` — the sa
 create-if-absent primitive the manifest seeds itself with — makes exactly one of N
 racing invocations the winner.
 
+The claim is taken on the *window*, not on the board's contents: a window that
+opens on an already-pristine board is claimed by its first request, which then
+finds nothing to reset and writes nothing. Skipping the claim in that case is the
+tempting shortcut and is wrong — the window would still look unspent, so the first
+visitor edit would be wiped by whatever request arrived next, which on a board with
+two tabs open is immediately. Edits are meant to survive until the clock rolls over.
+
 That buys three things a cron does not:
 
 - **It works on any plan.** Vercel's Hobby tier runs cron jobs at most once a day,

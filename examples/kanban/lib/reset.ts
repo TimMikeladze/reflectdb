@@ -46,7 +46,15 @@ export function resetWindow(now: number = Date.now()): number {
 	return Math.floor(now / RESET_INTERVAL_MS);
 }
 
-/** Key whose creation claims the right to reset `boardId` for one window. */
+/**
+ * Key whose creation claims one window of `boardId`.
+ *
+ * "Claimed" means the window's reset has already been decided, NOT that a reset
+ * happened: a window that opened on an already-pristine board is claimed by the
+ * first request to look at it, having done nothing. Both readings have to be the
+ * same one, or an edit made after a no-op window is treated as a board that
+ * still owes a reset. See `resetIfDue`.
+ */
 function claimKey(boardId: string, window: number): string {
 	return `resets/${encodeURIComponent(boardId)}/${window}`;
 }
@@ -111,28 +119,48 @@ async function forgetOldClaims(board: Board, boardId: string, window: number): P
  * Resets the board if the current window has not been reset yet.
  *
  * Returns whether this call performed the reset. Safe to call on every request
- * and on every poll tick: the pristine check short-circuits the common case
- * without a single store round trip, since state is already in memory.
+ * and on every poll tick: once a window is claimed every later call is one small
+ * GET that finds the marker and stops.
  */
 export async function resetIfDue(
 	board: Board,
 	boardId: string,
 	now: number = Date.now(),
 ): Promise<boolean> {
+	const window = resetWindow(now);
+
+	// The claim is the whole decision, and it is taken on the window rather than
+	// on the board's contents. Reading the cards first and skipping out early
+	// when they are pristine looks like the cheaper test and is the wrong one: a
+	// window that opens on a clean board leaves nothing claimed, so the first
+	// visitor edit makes the board dirty inside a window that still looks unspent,
+	// and the next request to arrive — the other tab's `hello`, a second drag,
+	// anything — claims it and resets the board out from under them. The card
+	// snapping back the instant a second tab speaks is that bug.
+	//
+	// Costs one small GET on the common path, which is the price of the check
+	// being correct. The write is only attempted in the window's first request.
+	if (await isClaimed(board, boardId, window)) return false;
+	if (!(await claim(board, boardId, window))) return false;
+	await forgetOldClaims(board, boardId, window);
+
 	// EVERY board resets, including one reached through `?board=<slug>`. This is
 	// a public demo with no sign-in, so there is nowhere to put data that is
 	// meant to last — a board that quietly kept its contents would be inviting
 	// people to rely on storage this example does not offer. The five-minute
 	// window is the promise, and it applies uniformly.
 	const cards = (await board.storage.getRows("cards")).rows as unknown as Card[];
+	// Nothing to undo, but the window is spent either way: whoever edits next is
+	// entitled to keep that edit until the clock rolls over.
 	if (isPristine(cards)) return false;
 
-	const window = resetWindow(now);
-	if (!(await claim(board, boardId, window))) return false;
-
 	await resetBoard(board, cards);
-	await forgetOldClaims(board, boardId, window);
 	return true;
+}
+
+/** Whether this window's reset has already been decided by some other request. */
+async function isClaimed(board: Board, boardId: string, window: number): Promise<boolean> {
+	return Boolean(await board.driver.get(claimKey(boardId, window)));
 }
 
 /**

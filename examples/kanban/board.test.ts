@@ -382,6 +382,62 @@ describe("the demo board reset", () => {
 		expect((await cardsOn("demo")).map((c) => c.id)).toContain("graffiti");
 	});
 
+	/**
+	 * Drops every claim marker for a board, which is what the store looks like
+	 * one tick into a window that follows a reset: the board is pristine, and
+	 * nothing has claimed the new window yet.
+	 */
+	async function forgetClaims(boardId: string): Promise<void> {
+		const driver = createKanbanDriver();
+		const keys = (await driver.list(`resets/${boardId}/`)).map((entry) => entry.key);
+		if (keys.length > 0) await driver.delete(keys);
+	}
+
+	test("a second tab connecting does not undo the first tab's move", async () => {
+		// The reported bug, driven through the real routes: one tab and one
+		// incognito tab, and the card "always switches back".
+		await connect("alice", "demo");
+		await forgetClaims("demo");
+
+		await addCard("alice", "moved", "alice moved this", "demo");
+
+		// The second tab's handshake — three POSTs, each of which calls the reset.
+		await connect("bob", "demo");
+		await post("bob", { type: "bootstrap" } as ClientMessage, "demo");
+
+		expect((await cardsOn("demo")).map((c) => c.id)).toContain("moved");
+	});
+
+	test("an edit made in a window that needed no reset is left alone", async () => {
+		// The window nobody reset: the board came into it already pristine, so
+		// there was nothing to do and — before this was fixed — nothing claimed the
+		// window either. The first visitor edit then made the board dirty, and the
+		// very next request claimed the window and wiped the edit. On the deployed
+		// demo that is a card that snaps back the moment a second tab says
+		// anything, which is what a visitor reported.
+		await connect("alice", "demo");
+
+		const when = laterWindow();
+		const idle = createBoard("demo");
+		try {
+			// Pristine, so no reset happens — but the window must still be spent.
+			expect(await resetIfDue(idle, "demo", when)).toBe(false);
+		} finally {
+			await closeBoard(idle);
+		}
+
+		await addCard("alice", "graffiti", "left by a visitor", "demo");
+
+		const next = createBoard("demo");
+		try {
+			expect(await resetIfDue(next, "demo", when)).toBe(false);
+		} finally {
+			await closeBoard(next);
+		}
+
+		expect((await cardsOn("demo")).map((c) => c.id)).toContain("graffiti");
+	});
+
 	test("resets again once the clock rolls into the next window", async () => {
 		await connect("alice", "demo");
 		await addCard("alice", "first", "first window", "demo");
