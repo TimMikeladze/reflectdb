@@ -95,6 +95,13 @@ with a `bye` rather than being cut off mid-frame. The client reopens at once,
 keeping its `clientId` and republishing what it holds, so a recycle is invisible
 — but it is a real reconnect, and a `snapshot` follows each one.
 
+**An open stream is a billed invocation.** On Fluid compute every open stream
+holds an instance's memory for its whole life, and the client reopens forever.
+A tab left in the background is a stream that never ends. Connect only while
+someone is watching: the landing demo (`landing/src/presence-demo.ts`) opens
+its client when the card is in view, the tab is visible and there has been
+input in the last 3 minutes, and closes it 10s after any of those stops.
+
 Rate limiting is also enforced differently, and better: the store refuses a
 write that lands closer than `1000 / maxMessagesPerSecond` after the previous
 one to the same entry. That is one statement rather than a shared counter, and

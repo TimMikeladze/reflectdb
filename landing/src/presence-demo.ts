@@ -11,7 +11,7 @@
  * this module only ever upgrades it.
  */
 
-import { createPresenceClient, type Peer } from "./presence/client.ts";
+import { createPresenceClient, type Peer, type PresenceClient } from "./presence/client.ts";
 
 /** Overridable so `bun services/presence/dev.ts` can back the dev page. */
 const PRESENCE_URL =
@@ -54,6 +54,16 @@ const TTL_MS = 20_000;
  */
 const HERE_TTL_MS = 90_000;
 const HEARTBEAT_MS = 30_000;
+
+/**
+ * Every open stream is a serverless invocation held open and re-opened every
+ * minute, and a tab left in the background held one forever. So the card is
+ * only live while someone could be looking at it: in view, tab visible, and
+ * some input in the last few minutes. Leaving starts a short grace period so
+ * a quick scroll past doesn't churn the connection.
+ */
+const IDLE_MS = 3 * 60_000;
+const LEAVE_GRACE_MS = 10_000;
 
 const ADJECTIVES = [
 	"swift",
@@ -157,7 +167,10 @@ export function mountPresenceDemo(root: HTMLElement): void {
 	// `renderRoster` before a `let` further down would have left its dead zone.
 	let herePeers: Peer<unknown>[] = [];
 
-	const presence = createPresenceClient({
+	let presence: PresenceClient | null = null;
+	let heartbeat = 0;
+
+	const connect = (): PresenceClient => createPresenceClient({
 		url: PRESENCE_URL,
 		apiKey,
 		room: ROOM,
@@ -178,7 +191,7 @@ export function mountPresenceDemo(root: HTMLElement): void {
 		},
 	});
 
-	presence.subscribe<Cursor>(CURSOR_CHANNEL, (peers) => {
+	const onCursors = (peers: Peer<Cursor>[]): void => {
 		const seen = new Set<string>();
 
 		for (const peer of peers) {
@@ -211,7 +224,7 @@ export function mountPresenceDemo(root: HTMLElement): void {
 
 		if (!offline) root.classList.toggle("has-peers", seen.size > 0);
 		renderRoster();
-	});
+	};
 
 	// ── Occupancy ─────────────────────────────────────────────────────────
 
@@ -254,7 +267,7 @@ export function mountPresenceDemo(root: HTMLElement): void {
 		}
 	}
 
-	presence.subscribe(HERE_CHANNEL, (peers) => {
+	const onHere = (peers: Peer<unknown>[]): void => {
 		if (offline) return;
 		herePeers = peers;
 		const others = peers.length;
@@ -268,10 +281,33 @@ export function mountPresenceDemo(root: HTMLElement): void {
 				others === 0 ? "open this page in a second tab" : "move your cursor in here";
 		}
 		renderRoster();
-	});
+	};
 
-	presence.publish(HERE_CHANNEL, {}, HERE_TTL_MS);
-	window.setInterval(() => presence.publish(HERE_CHANNEL, {}, HERE_TTL_MS), HEARTBEAT_MS);
+	const start = (): void => {
+		if (presence || offline) return;
+		const client = connect();
+		presence = client;
+		client.subscribe<Cursor>(CURSOR_CHANNEL, onCursors);
+		client.subscribe(HERE_CHANNEL, onHere);
+		client.publish(HERE_CHANNEL, {}, HERE_TTL_MS);
+		heartbeat = window.setInterval(() => client.publish(HERE_CHANNEL, {}, HERE_TTL_MS), HEARTBEAT_MS);
+	};
+
+	const stop = (): void => {
+		const client = presence;
+		if (!client) return;
+		stopPublishing();
+		window.clearInterval(heartbeat);
+		client.clear(HERE_CHANNEL);
+		presence = null;
+		client.close();
+		if (offline) return;
+		onCursors([]);
+		herePeers = [];
+		renderRoster();
+		if (stateEl) stateEl.textContent = "paused";
+		countEl.textContent = "paused while you're away";
+	};
 
 	// ── Publishing ────────────────────────────────────────────────────────
 
@@ -283,7 +319,7 @@ export function mountPresenceDemo(root: HTMLElement): void {
 		frame = 0;
 		if (!pending) return;
 		lastSentAt = performance.now();
-		presence.publish(CURSOR_CHANNEL, { ...pending });
+		presence?.publish(CURSOR_CHANNEL, { ...pending });
 		pending = null;
 	};
 
@@ -311,7 +347,7 @@ export function mountPresenceDemo(root: HTMLElement): void {
 		frame = 0;
 		pending = null;
 		root.classList.remove("is-active");
-		presence.clear(CURSOR_CHANNEL);
+		presence?.clear(CURSOR_CHANNEL);
 	};
 
 	surface.addEventListener("pointerleave", stopPublishing);
@@ -329,6 +365,47 @@ export function mountPresenceDemo(root: HTMLElement): void {
 		}
 		// Background timers get throttled, so `here` may have expired while the
 		// tab was away. Re-announce rather than wait for the next heartbeat.
-		presence.publish(HERE_CHANNEL, {}, HERE_TTL_MS);
+		presence?.publish(HERE_CHANNEL, {}, HERE_TTL_MS);
 	});
+
+	// ── Only live while watched ───────────────────────────────────────────
+
+	let inView = false;
+	let lastInput = performance.now();
+	let leaveTimer = 0;
+	const watched = (): boolean =>
+		inView && !document.hidden && performance.now() - lastInput < IDLE_MS;
+
+	const update = (): void => {
+		if (watched()) {
+			window.clearTimeout(leaveTimer);
+			leaveTimer = 0;
+			start();
+		} else if (presence && !leaveTimer) {
+			leaveTimer = window.setTimeout(() => {
+				leaveTimer = 0;
+				if (!watched()) stop();
+			}, LEAVE_GRACE_MS);
+		}
+	};
+
+	new IntersectionObserver(
+		(entries) => {
+			inView = entries.some((entry) => entry.isIntersecting);
+			update();
+		},
+		{ rootMargin: "200px" },
+	).observe(root);
+
+	const onInput = (): void => {
+		const wasIdle = performance.now() - lastInput >= IDLE_MS;
+		lastInput = performance.now();
+		if (wasIdle || !presence) update();
+	};
+	for (const type of ["pointermove", "pointerdown", "keydown", "wheel", "scroll", "touchstart"]) {
+		window.addEventListener(type, onInput, { passive: true });
+	}
+	document.addEventListener("visibilitychange", update);
+	// Going idle has no event of its own.
+	window.setInterval(update, 30_000);
 }
