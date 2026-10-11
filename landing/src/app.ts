@@ -8,6 +8,7 @@ const TETRIS_DEMO = "https://reflectdb-tetris.fly.dev/";
 const WHITEBOARD_DEMO = "https://reflectdb-whiteboard.fly.dev/";
 const HTMX_DEMO = "https://reflectdb-htmx-todos.fly.dev/";
 const KANBAN_DEMO = "https://reflectdb-kanban.vercel.app/";
+const HUDDLE_DEMO = "https://reflectdb-huddle.fly.dev/";
 const PRESENCE_SERVICE = `${REPO}/tree/main/services/presence`;
 
 /**
@@ -273,6 +274,20 @@ export function renderApp(root: HTMLElement): void {
           <span class="hero-mini-label"><strong>presence</strong><em>live on this page</em></span>
         </a>
 
+        <a class="hero-mini" href="${HUDDLE_DEMO}">
+          <svg viewBox="0 0 96 52" aria-hidden="true">
+            <g class="mini-card">
+              <rect x="8" y="9" width="22" height="16" rx="2" />
+              <rect x="66" y="27" width="22" height="16" rx="2" />
+            </g>
+            <path class="mini-p2p" d="M30 17C46 17 50 35 66 35" />
+            <g class="mini-cursor a" transform="translate(40 30)">
+              <path d="M0 0l9 3.5-3.5 1.5-1.5 3.5z" /><rect x="7" y="6" width="14" height="8" rx="2" />
+            </g>
+          </svg>
+          <span class="hero-mini-label"><strong>huddle</strong><em>peer-to-peer over WebRTC</em></span>
+        </a>
+
         <a class="hero-mini" href="${TETRIS_DEMO}">
           <svg viewBox="0 0 96 52" aria-hidden="true">
             <rect class="mini-well" x="30" y="2" width="36" height="48" rx="1" />
@@ -394,7 +409,7 @@ export function renderApp(root: HTMLElement): void {
           <div class="demo-status"><span></span>deployed on Vercel · running right now</div>
           <h4>Presence, live on this page</h4>
           <p>
-            The three demos below are somewhere else. This one is here: the panel is connected
+            The other demos below are somewhere else. This one is here: the panel is connected
             to the public presence service, publishing your pointer and drawing everyone
             else's. Open this page in a second tab and the two see each other.
           </p>
@@ -432,6 +447,67 @@ export function renderApp(root: HTMLElement): void {
           </div>
           <div class="demo-preview-footer"><span class="presence-tagline">real visitors · real cursors</span><span class="presence-roster" data-presence-roster></span><strong data-presence-count>presence is loading</strong></div>
         </div>
+      </article>
+
+      <article class="demo-feature">
+        <div class="demo-copy">
+          <div class="demo-status"><span></span>deployed on fly.io · WebRTC · wakes on demand</div>
+          <h4>Huddle: peer-to-peer over WebRTC</h4>
+          <p>
+            Sticky notes, live cursors and a video call. Wrap the app in
+            <code>&lt;PeerMeshProvider&gt;</code> and the same <code>useEphemeral</code> cursor
+            code goes browser-to-browser at full frame rate, with reflectdb's own connection
+            carrying the signaling.
+          </p>
+          <ul class="demo-facts">
+            <li>a meter shows frames sent against frames the server saw</li>
+            <li>drag previews go peer-to-peer; the drop is a synced op</li>
+            <li>camera, mic and screen share, with no media server</li>
+            <li>a private room per link, and the camera starts only on join</li>
+          </ul>
+          <div class="demo-actions">
+            <a class="btn primary" href="${HUDDLE_DEMO}">open a room →</a>
+            <a class="btn" href="${REPO}/tree/main/examples/huddle">view source</a>
+          </div>
+          <p class="demo-hint">Press "open a second tab" in the room to see two peers connect. The first load may take a moment while the Fly Machine starts.</p>
+        </div>
+
+        <a class="demo-preview" href="${HUDDLE_DEMO}" aria-label="Open the WebRTC huddle demo">
+          <div class="demo-chrome">
+            <span class="demo-chrome-dot"></span>
+            <span>reflectdb-huddle.fly.dev</span>
+            <span class="demo-synced">direct</span>
+          </div>
+          <div class="demo-board">
+            <svg class="huddle-svg" viewBox="0 0 340 168" role="img" aria-label="Two peers on a shared board of sticky notes, connected directly, with one note being dragged">
+              <g class="huddle-note">
+                <rect x="22" y="20" width="70" height="46" rx="3" />
+                <rect x="232" y="26" width="70" height="46" rx="3" class="b" />
+              </g>
+              <g class="huddle-note moving">
+                <rect x="128" y="92" width="70" height="46" rx="3" class="c" />
+              </g>
+              <path class="huddle-link" d="M92 52C150 52 180 70 232 52" />
+              <text class="huddle-link-label" x="162" y="46">p2p · 60/s</text>
+              <g class="demo-peer peer-a" transform="translate(186 118)">
+                <path d="M0 0l13 5-5 2-2 5z" />
+                <rect x="10" y="9" width="34" height="15" rx="4" />
+                <text x="27" y="20">mia</text>
+              </g>
+              <g class="demo-peer peer-b" transform="translate(270 80)">
+                <path d="M0 0l13 5-5 2-2 5z" />
+                <rect x="10" y="9" width="36" height="15" rx="4" />
+                <text x="28" y="20">sam</text>
+              </g>
+            </svg>
+            <div class="huddle-meter">
+              <span><strong>60</strong><small>frames/s sent</small></span>
+              <span><strong>10</strong><small>reached the server</small></span>
+              <span><strong>2</strong><small>in the call</small></span>
+            </div>
+          </div>
+          <div class="demo-preview-footer"><span>cursors and drags skip the server</span><strong>open →</strong></div>
+        </a>
       </article>
 
       <article class="demo-feature">

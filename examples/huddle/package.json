@@ -1,0 +1,13 @@
+{
+	"name": "reflectdb-huddle-example",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "bun --hot --watch server.ts",
+		"start": "bun server.ts"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.2.23"
+	}
+}

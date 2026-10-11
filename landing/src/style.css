@@ -1932,3 +1932,92 @@ footer a:hover {
 		animation: none;
 	}
 }
+
+/* ── huddle (WebRTC) preview ─────────────────────────────────────────── */
+
+.mini-p2p {
+	fill: none;
+	stroke: var(--accent-2);
+	stroke-width: 1.5;
+	stroke-dasharray: 3 3;
+	animation: huddle-flow 1.2s linear infinite;
+}
+
+.demo-board .huddle-svg {
+	max-height: none;
+}
+
+.huddle-note rect {
+	fill: color-mix(in srgb, var(--warn) 22%, transparent);
+	stroke: color-mix(in srgb, var(--warn) 55%, var(--line));
+	stroke-width: 1.5;
+}
+
+.huddle-note rect.b {
+	fill: color-mix(in srgb, var(--accent) 18%, transparent);
+	stroke: color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+
+/* The note in flight: its preview is the peer-to-peer part. */
+.huddle-note.moving rect {
+	fill: color-mix(in srgb, var(--accent-2) 20%, transparent);
+	stroke: var(--accent-2);
+	animation: kanban-drift 3.2s ease-in-out infinite;
+}
+
+.huddle-link {
+	fill: none;
+	stroke: var(--accent-2);
+	stroke-width: 1.5;
+	stroke-dasharray: 4 4;
+	animation: huddle-flow 1s linear infinite;
+}
+
+.huddle-link-label {
+	fill: var(--accent-2);
+	font-family: var(--mono);
+	font-size: 8px;
+	letter-spacing: 0.08em;
+	text-anchor: middle;
+}
+
+.huddle-meter {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 6px;
+}
+
+.huddle-meter span {
+	display: grid;
+	gap: 2px;
+	padding: 6px 8px;
+	border: 1px solid var(--line);
+	border-radius: 3px;
+}
+
+.huddle-meter strong {
+	font-size: 15px;
+	font-weight: 500;
+	font-variant-numeric: tabular-nums;
+}
+
+.huddle-meter small {
+	color: var(--muted);
+	font-size: 8px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+}
+
+@keyframes huddle-flow {
+	to {
+		stroke-dashoffset: -16;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.mini-p2p,
+	.huddle-link,
+	.huddle-note.moving rect {
+		animation: none;
+	}
+}

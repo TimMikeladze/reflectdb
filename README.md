@@ -88,16 +88,17 @@ You bring your own types and your own database. reflectdb handles the protocol, 
 
 | Demo | Try it | What it demonstrates |
 |------|--------|----------------------|
+| **Huddle (WebRTC)** | [Open a room](https://reflectdb-huddle.fly.dev/) · [source](./examples/huddle/) | Sticky notes, live cursors and a video call with screen share. Cursors and drag previews go peer-to-peer through `<PeerMeshProvider>`, with reflectdb carrying the signaling, and a meter shows how few frames reach the server. Press "open a second tab" in the room. |
 | **Infinite multiplayer Tetris** | [Play live](https://reflectdb-tetris.fly.dev/) · [source](./examples/tetris/) | Optimistic input prediction, server reconciliation and gravity, a live leaderboard, per-player progression, and Bun SQLite persistence in one perpetual game. Open two tabs to add another player. |
 | **Multiplayer kanban** | [Open the board](https://reflectdb-kanban.vercel.app/) · [source](./examples/kanban/) | A board whose entire durable state is an S3 bucket — no Postgres, no SQLite, no volume — running on Vercel functions. Shows leaseless optimistic concurrency and serverless SSE. Open two tabs and drag a card. |
 | **htmx 4 todos** | [Open it](https://reflectdb-htmx-todos.fly.dev/) · [source](./examples/htmx-todos/) | htmx owns the DOM, reflectdb owns the data. Attributes point at `reflect:` actions instead of server routes, so the server renders no HTML at all — every fragment comes from the local store. Open two tabs, or stop typing and go offline. The list resets to its seed rows every minute. |
 | **Collaborative whiteboard** | [Draw live](https://reflectdb-whiteboard.fly.dev/) · [source](./examples/whiteboard/) | Freeform drawing by default, optional Pictionary rounds, guest-authenticated rooms, ephemeral cursors, chat, presence, and per-user query results. Rooms and everything in them are deleted 30 minutes after they are created. Open two tabs to draw with yourself. |
 
-Tetris, the whiteboard and the htmx todos each run on one auto-stopping Fly
+Huddle, Tetris, the whiteboard and the htmx todos each run on one auto-stopping Fly
 Machine with no volume, so the first load after an idle period may take a
 moment. The kanban board has no machine to wake — it is Vercel functions and a
 bucket — but every board resets on a five-minute window, and the htmx todos
-reset every minute. All four keep their data intentionally ephemeral across
+reset every minute. All five keep their data intentionally ephemeral across
 deployments and Machine replacement.
 
 ## Why reflectdb
@@ -684,6 +685,9 @@ How it works, and its limits:
   the frame, but treat the frame's `data` as untrusted input.
 - **Durable data never goes peer-to-peer.** Ops, permissions and ordering stay on the
   server. Use WebRTC only for the in-between states: the drag preview, not the drop.
+
+See it running in the [huddle demo](https://reflectdb-huddle.fly.dev/)
+([source](./examples/huddle/)).
 
 Without React, call `createPeerMesh(client, config)` from `reflectdb/client/webrtc`. It
 returns `getSnapshot()` and `subscribe()` for any store, plus `call`, `shareScreen`,
