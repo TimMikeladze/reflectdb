@@ -141,7 +141,7 @@ function createRoom() {
 		await server.close();
 	}
 
-	return { join, mesh, framesFrom, close, PROTOCOL_VERSION };
+	return { join, mesh, framesFrom, close, server, PROTOCOL_VERSION };
 }
 
 let room: ReturnType<typeof createRoom> | null = null;
@@ -163,8 +163,10 @@ describe("peer mesh", () => {
 		const meshB = room.mesh(bob);
 
 		await waitFor(() => connected(meshA, "bob") && connected(meshB, "alice"));
+		// The route is read from stats once connected: loopback is direct, not relayed.
+		await waitFor(() => meshB.getSnapshot().peers[0]?.relayed !== null);
 		expect(meshB.getSnapshot().peers).toEqual([
-			{ clientId: "alice", userId: "u-alice", state: "connected", inCall: false },
+			{ clientId: "alice", userId: "u-alice", state: "connected", inCall: false, relayed: false },
 		]);
 
 		const received: EphemeralEvent[] = [];
@@ -205,6 +207,33 @@ describe("peer mesh", () => {
 		expect(toServer.length).toBeLessThanOrEqual(3);
 		const last = toServer.at(-1)!.message as Extract<ClientMessage, { type: "ephemeral" }>;
 		expect(last.data.x).toBe(20);
+	});
+
+	test("a peer flooding the data channel is capped per second", async () => {
+		room = createRoom();
+		const alice = await room.join("alice");
+		const bob = await room.join("bob");
+		const meshA = room.mesh(alice);
+		room.mesh(bob);
+		await waitFor(() => connected(meshA, "bob"));
+
+		let received = 0;
+		bob.subscribeEphemeral("spam", () => received++);
+		// Start at the top of a wall-clock second so the burst lands in one budget.
+		while (Date.now() % 1000 > 20) await new Promise((r) => setTimeout(r, 5));
+		const second = Math.floor(Date.now() / 1000);
+		for (let i = 0; i < 600; i++) {
+			await alice.sendEphemeral({ key: "spam", userId: "u-alice", data: { i }, transport: "p2p" });
+		}
+		const sentWithinOneSecond = Math.floor(Date.now() / 1000) === second;
+		await waitFor(() => received >= 250, 3000);
+		await new Promise((r) => setTimeout(r, 200));
+
+		// Delivery is real, and the burst past the 300/s budget is dropped. (A few
+		// of the 300 may arrive out of order on the unordered channel and be
+		// discarded as stale, hence a floor below 300.)
+		expect(sentWithinOneSecond).toBe(true);
+		expect(received).toBeLessThanOrEqual(300);
 	});
 
 	test("with nobody connected, auto sends every frame through the server", async () => {
@@ -269,7 +298,7 @@ describe("peer mesh", () => {
 		});
 		await new Promise((r) => setTimeout(r, 100));
 		expect(meshA.getSnapshot().peers).toEqual([
-			{ clientId: "bob", userId: "u-bob", state: "server-only", inCall: false },
+			{ clientId: "bob", userId: "u-bob", state: "server-only", inCall: false, relayed: null },
 		]);
 
 		// Bob is not reached directly, so auto must not throttle the server copy.
@@ -346,6 +375,45 @@ describe("peer mesh", () => {
 		expect(room.framesFrom("alice", "cursor").length).toBe(3);
 
 		await waitFor(() => meshA.getSnapshot().peers.length === 0);
+	});
+
+	test("without iceServers, the mesh uses the server's provider", async () => {
+		room = createRoom();
+		room.server.iceServers(() => ({
+			iceServers: [{ urls: "stun:127.0.0.1:3478" }],
+			ttlSeconds: 3600,
+		}));
+		const alice = await room.join("alice");
+		const bob = await room.join("bob");
+		SpecPeerConnection.instances = [];
+		// No iceServers: ask the server.
+		const meshA = createPeerMesh(alice, { RTCPeerConnection: SpecPeerConnection });
+		const meshB = createPeerMesh(bob, { RTCPeerConnection: SpecPeerConnection });
+		try {
+			await waitFor(() => connected(meshA, "bob") && connected(meshB, "alice"));
+			const urls = SpecPeerConnection.instances[0]!.getConfiguration().iceServers?.flatMap((s) =>
+				Array.isArray(s.urls) ? s.urls : [s.urls],
+			);
+			expect(urls).toEqual(["stun:127.0.0.1:3478"]);
+		} finally {
+			meshA.destroy();
+			meshB.destroy();
+		}
+	});
+
+	test("relayOnly without a TURN server warns instead of failing silently", async () => {
+		room = createRoom();
+		const alice = await room.join("alice");
+		const warnings: string[] = [];
+		const original = console.warn;
+		console.warn = (message: string) => warnings.push(String(message));
+		try {
+			room.mesh(alice, { relayOnly: true, iceServers: [{ urls: "stun:127.0.0.1:3478" }] });
+			await new Promise((r) => setTimeout(r, 20));
+		} finally {
+			console.warn = original;
+		}
+		expect(warnings.some((w) => w.includes("relayOnly is set but no TURN server"))).toBe(true);
 	});
 
 	test("peers in different rooms never connect", async () => {

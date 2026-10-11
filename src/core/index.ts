@@ -60,6 +60,13 @@ export {
 } from "./types.ts";
 
 export type { EphemeralEvent, EphemeralMessage } from "./types.ts";
+export type {
+	SignalEvent,
+	SignalMessage,
+	IceServer,
+	IceRequestMessage,
+	IceServersMessage,
+} from "./types.ts";
 
 // Schema
 export { defineSyncQueries, t, view, presence } from "./schema.ts";

@@ -29,11 +29,28 @@ export interface PeerMeshClient {
 	setEphemeralRouter(router: EphemeralRouter | null): void;
 	sendSignal(to: string, data: Record<string, unknown>): Promise<void>;
 	subscribeSignal(listener: (event: SignalEvent) => void): () => void;
+	requestIceServers(
+		timeoutMs?: number,
+	): Promise<{ iceServers: RTCIceServer[]; expiresAt: number | null } | null>;
 }
 
+/**
+ * Where ICE servers come from when they are not a fixed list: called before the
+ * first connection and again shortly before `expiresAt`. Return a plain array
+ * for servers that never expire.
+ */
+export type IceServerSource = () => Promise<
+	RTCIceServer[] | { iceServers: RTCIceServer[]; expiresAt?: number | null }
+>;
+
 export interface PeerMeshConfig {
-	/** Default: Google's public STUN server. Add your own TURN for strict NATs. */
-	iceServers?: RTCIceServer[];
+	/**
+	 * STUN/TURN servers. Omit to ask the server (`server.iceServers()`, short-lived
+	 * TURN credentials over the authenticated connection), falling back to Google's
+	 * public STUN when it has none. Pass an array to use it as is, or a function to
+	 * fetch credentials from anywhere.
+	 */
+	iceServers?: RTCIceServer[] | IceServerSource;
 	/** Full-mesh ceiling. Peers past it stay on the server path. Default: 8 */
 	maxPeers?: number;
 	/**
@@ -63,6 +80,11 @@ export interface PeerInfo {
 	state: PeerState;
 	/** The peer has joined the room's call. */
 	inCall: boolean;
+	/**
+	 * Whether the direct connection goes through a TURN relay, read from the
+	 * selected candidate pair once connected. Null until known.
+	 */
+	relayed: boolean | null;
 }
 
 export type StreamKind = "camera" | "screen";
@@ -127,6 +149,13 @@ const MAX_BUFFERED_BYTES = 256 * 1024;
 const MAX_ICE_RESTARTS = 2;
 const MAX_PARTIAL_DESCRIPTIONS = 4;
 const MAX_PENDING_CANDIDATES = 64;
+/**
+ * Per-peer receive ceilings, per second. Peer-to-peer frames skip the server's
+ * rate limit, so without these one peer could flood a tab with renders.
+ * Generous: a 60 Hz cursor plus a 60 Hz drag is 120.
+ */
+const MAX_FRAMES_PER_SECOND = 300;
+const MAX_CONTROL_PER_SECOND = 50;
 
 type ControlMessage =
 	| { t: "call"; on: boolean }
@@ -150,6 +179,9 @@ interface Peer {
 	restarts: number;
 	/** Set when the mesh gave up; the peer may be tried again after this. */
 	retryAt: number;
+	relayed: boolean | null;
+	/** Receive budget for the current second. */
+	inbound: { second: number; frames: number; control: number };
 	connectTimer: ReturnType<typeof setTimeout> | null;
 	remoteCall: boolean;
 	streamKinds: Map<string, StreamKind>;
@@ -183,10 +215,14 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 	const announceIntervalMs = config.announceIntervalMs ?? 30_000;
 	const presenceTtlMs = announceIntervalMs * PRESENCE_TTL_INTERVALS;
 	const connectTimeoutMs = config.connectTimeoutMs ?? 15_000;
-	const rtcConfig: RTCConfiguration = {
-		iceServers: config.iceServers ?? DEFAULT_ICE_SERVERS,
+	let iceServers: RTCIceServer[] = Array.isArray(config.iceServers)
+		? config.iceServers
+		: DEFAULT_ICE_SERVERS;
+	const rtcConfig = (): RTCConfiguration => ({
+		iceServers,
 		...(config.relayOnly ? { iceTransportPolicy: "relay" } : {}),
-	};
+	});
+	let iceRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 	const peers = new Map<string, Peer>();
 	/** Everyone announcing on `__rtc`, connected or not. */
@@ -218,6 +254,7 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 				userId: info.userId,
 				state: peer?.state ?? "server-only",
 				inCall: info.inCall,
+				relayed: peer?.relayed ?? null,
 			});
 		}
 		peerList.sort((a, b) => (a.clientId < b.clientId ? -1 : 1));
@@ -250,8 +287,16 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 
 	// ── Presence ────────────────────────────────────────────────────────
 
+	/** Past the handshake: anything sent before `hello` gets the client disconnected. */
+	function connected(): boolean {
+		const state = client.getState();
+		return state === "connected" || state === "bootstrapping" || state === "synced";
+	}
+
 	function announce(): void {
-		if (destroyed) return;
+		// Not before the ICE servers are known (a peer would open a connection we
+		// cannot build yet), and not before the handshake.
+		if (destroyed || !iceResolved || !connected()) return;
 		void client
 			.sendEphemeral({
 				key: RTC_PRESENCE_KEY,
@@ -264,6 +309,10 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 	}
 
 	const unsubPresence = client.subscribeEphemeral(RTC_PRESENCE_KEY, (event) => {
+		void iceReady.then(() => onPresence(event));
+	});
+
+	function onPresence(event: EphemeralEvent): void {
 		if (event.clientId === self || destroyed) return;
 		const inCall = event.data.call === true;
 		const previous = known.get(event.clientId);
@@ -284,7 +333,7 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 			signal(event.clientId, { t: "hello" });
 		}
 		if (!previous || previous.inCall !== inCall) changed();
-	});
+	}
 
 	// Announce once the connection can deliver it: an announce sent before the
 	// client has joined a room reaches nobody.
@@ -326,7 +375,85 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 		if (pruned) changed();
 	}, announceIntervalMs);
 	(announceTimer as { unref?: () => void }).unref?.();
-	announce();
+
+	// ── ICE servers ─────────────────────────────────────────────────────
+
+	let iceResolved = false;
+
+	function untilConnected(): Promise<void> {
+		if (connected()) return Promise.resolve();
+		return new Promise((resolve) => {
+			const unsubscribe = client.subscribe(() => {
+				if (!connected() && !destroyed) return;
+				unsubscribe();
+				resolve();
+			});
+		});
+	}
+
+	/**
+	 * Fetch ICE servers from the configured source, or the sync server. Credentials
+	 * that expire are refreshed a minute early and pushed into live connections,
+	 * so a long call outlives its first credential.
+	 */
+	async function resolveIceServers(): Promise<void> {
+		let fresh: { iceServers: RTCIceServer[]; expiresAt: number | null } | null = null;
+		try {
+			if (typeof config.iceServers === "function") {
+				const value = await config.iceServers();
+				fresh = Array.isArray(value)
+					? { iceServers: value, expiresAt: null }
+					: { iceServers: value.iceServers, expiresAt: value.expiresAt ?? null };
+			} else if (config.iceServers === undefined) {
+				await untilConnected();
+				if (destroyed) return;
+				fresh = await client.requestIceServers();
+			}
+		} catch (err) {
+			console.error("[reflectdb] webrtc: could not get ICE servers; using STUN:", err);
+		}
+		if (destroyed) return;
+		if (fresh && fresh.iceServers.length > 0) {
+			iceServers = fresh.iceServers;
+			for (const peer of peers.values()) {
+				try {
+					peer.pc.setConfiguration(rtcConfig());
+				} catch {
+					// Closed, or an implementation without setConfiguration.
+				}
+			}
+			if (fresh.expiresAt !== null) {
+				const delay = Math.max(30_000, fresh.expiresAt - Date.now() - 60_000);
+				iceRefreshTimer = setTimeout(() => void resolveIceServers(), delay);
+				(iceRefreshTimer as { unref?: () => void }).unref?.();
+			}
+		}
+		warnIfRelayOnlyWithoutTurn();
+	}
+
+	let warnedRelay = false;
+	function warnIfRelayOnlyWithoutTurn(): void {
+		if (!config.relayOnly || warnedRelay) return;
+		const hasTurn = iceServers.some((server) =>
+			(Array.isArray(server.urls) ? server.urls : [server.urls]).some((url) =>
+				/^turns?:/.test(url),
+			),
+		);
+		if (hasTurn) return;
+		warnedRelay = true;
+		console.warn(
+			"[reflectdb] webrtc: relayOnly is set but no TURN server is configured, so no peer can connect directly; everything stays on the server path.",
+		);
+	}
+
+	const iceReady: Promise<void> = (
+		Array.isArray(config.iceServers)
+			? Promise.resolve(warnIfRelayOnlyWithoutTurn())
+			: resolveIceServers()
+	).then(() => {
+		iceResolved = true;
+		announce();
+	});
 
 	// A closing tab tears its connections down without telling anyone; closing
 	// them first lets peers see the departure at once instead of after ICE
@@ -371,6 +498,7 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 	const unsubSignal = client.subscribeSignal((event) => {
 		if (destroyed) return;
 		signalChain = signalChain
+			.then(() => iceReady)
 			.then(() => (destroyed ? undefined : handleSignal(event)))
 			.catch((err) => {
 				console.error("[reflectdb] webrtc signal failed:", err);
@@ -475,7 +603,7 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 		if (destroyed || activeCount() >= maxPeers) return null;
 		if (!known.has(id)) known.set(id, { userId, inCall: false, lastSeen: Date.now() });
 
-		const pc = new PC(rtcConfig);
+		const pc = new PC(rtcConfig());
 		const peer: Peer = {
 			id,
 			userId,
@@ -491,6 +619,8 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 			chunks: new Map(),
 			restarts: 0,
 			retryAt: 0,
+			relayed: null,
+			inbound: { second: 0, frames: 0, control: 0 },
 			connectTimer: null,
 			remoteCall: known.get(id)?.inCall ?? false,
 			streamKinds: new Map(),
@@ -567,6 +697,7 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 		if (peer.pc.connectionState === "disconnected" || peer.pc.connectionState === "failed") return;
 		peer.state = "connected";
 		peer.restarts = 0;
+		void readRoute(peer);
 		if (peer.connectTimer) clearTimeout(peer.connectTimer);
 		peer.connectTimer = null;
 		if (local) {
@@ -575,6 +706,34 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 			if (peer.remoteCall) attachMedia(peer);
 		}
 		changed();
+	}
+
+	/** Whether the selected candidate pair runs through a TURN relay. */
+	async function readRoute(peer: Peer): Promise<void> {
+		try {
+			const stats = await peer.pc.getStats();
+			const reports = new Map<string, Record<string, unknown>>();
+			stats.forEach((report: Record<string, unknown>) => reports.set(String(report.id), report));
+			let pair: Record<string, unknown> | undefined;
+			for (const report of reports.values()) {
+				if (report.type === "transport" && typeof report.selectedCandidatePairId === "string") {
+					pair = reports.get(report.selectedCandidatePairId);
+				}
+			}
+			pair ??= [...reports.values()].find(
+				(report) =>
+					report.type === "candidate-pair" && report.nominated && report.state === "succeeded",
+			);
+			if (!pair) return;
+			const local = reports.get(String(pair.localCandidateId));
+			const remote = reports.get(String(pair.remoteCandidateId));
+			const relayed = local?.candidateType === "relay" || remote?.candidateType === "relay";
+			if (peers.get(peer.id) !== peer || peer.relayed === relayed) return;
+			peer.relayed = relayed;
+			changed();
+		} catch {
+			// Stats unavailable; leave it unknown.
+		}
 	}
 
 	function onConnectionState(peer: Peer): void {
@@ -668,8 +827,19 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 
 	// ── Ephemeral frames ────────────────────────────────────────────────
 
+	/** Count one inbound message against the peer's per-second budget. */
+	function withinBudget(peer: Peer, kind: "frames" | "control"): boolean {
+		const second = Math.floor(Date.now() / 1000);
+		if (peer.inbound.second !== second) peer.inbound = { second, frames: 0, control: 0 };
+		peer.inbound[kind]++;
+		return (
+			peer.inbound[kind] <= (kind === "frames" ? MAX_FRAMES_PER_SECOND : MAX_CONTROL_PER_SECOND)
+		);
+	}
+
 	function receiveFrame(peer: Peer, raw: unknown): void {
 		if (typeof raw !== "string" || raw.length > MAX_FRAME_BYTES) return;
+		if (!withinBudget(peer, "frames")) return;
 		let frame: { k?: unknown; d?: unknown; ttl?: unknown };
 		try {
 			frame = JSON.parse(raw);
@@ -782,6 +952,7 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 
 	function receiveControl(peer: Peer, raw: unknown): void {
 		if (typeof raw !== "string" || raw.length > MAX_FRAME_BYTES) return;
+		if (!withinBudget(peer, "control")) return;
 		let message: ControlMessage;
 		try {
 			message = JSON.parse(raw) as ControlMessage;
@@ -991,6 +1162,7 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 			leave();
 			destroyed = true;
 			clearInterval(announceTimer);
+			if (iceRefreshTimer) clearTimeout(iceRefreshTimer);
 			for (const slot of trailing.values()) clearTimeout(slot.timer);
 			trailing.clear();
 			unsubPresence();

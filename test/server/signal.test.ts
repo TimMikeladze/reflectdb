@@ -148,6 +148,40 @@ describe("signal", () => {
 		await a.server.close();
 	});
 
+	test("an ephemeral event from a room-less subscription reaches only room-less subscribers", async () => {
+		const a = setupInstance("server-a");
+		await join(a, "bob", "acme");
+		for (const id of ["mallory", "carol"]) {
+			a.transport.connectHandler!(id, new Request("https://sync"));
+			a.transport.messageHandler!(id, {
+				type: "hello",
+				protocolVersion: PROTOCOL_VERSION,
+				clientId: id,
+				token: `u-${id}`,
+			});
+			await tick();
+			a.transport.messageHandler!(id, { type: "sync_declare", table: "posts", params: {} });
+			await tick();
+		}
+		a.transport.sentMessages.length = 0;
+
+		a.transport.messageHandler!("mallory", {
+			type: "ephemeral",
+			key: "cursor",
+			userId: "u-mallory",
+			data: { x: 1 },
+		});
+		await tick();
+
+		const ephemeralTo = (id: string) =>
+			a.transport.sentMessages.filter((m) => m.clientId === id && m.message.type === "ephemeral");
+		// Not into the room it never joined...
+		expect(ephemeralTo("bob")).toEqual([]);
+		// ...while apps that use no rooms keep their broadcast.
+		expect(ephemeralTo("carol")).toHaveLength(1);
+		await a.server.close();
+	});
+
 	test("drops an oversized frame", async () => {
 		const a = setupInstance("server-a");
 		await join(a, "alice", "acme");
@@ -208,6 +242,63 @@ describe("signal", () => {
 		expect(signalsFor(a, "bob").length).toBe(1);
 		expect(bus.published.filter((e) => e.kind === "signal")).toEqual([]);
 
+		await a.server.close();
+	});
+});
+
+describe("ice_request", () => {
+	function iceRepliesFor(inst: Instance, clientId: string) {
+		return inst.transport.sentMessages
+			.filter((m) => m.clientId === clientId && m.message.type === "ice_servers")
+			.map((m) => m.message);
+	}
+
+	test("answers with the provider's servers, called with the session's auth", async () => {
+		const a = setupInstance("server-a");
+		const seen: unknown[] = [];
+		a.server.iceServers(({ auth }) => {
+			seen.push(auth);
+			return {
+				iceServers: [{ urls: "turn:turn.example.com:3478", username: "u", credential: "c" }],
+				ttlSeconds: 600,
+			};
+		});
+		await join(a, "alice", "acme");
+
+		const before = Date.now();
+		a.transport.messageHandler!("alice", { type: "ice_request" });
+		await tick();
+
+		const [reply] = iceRepliesFor(a, "alice") as Array<{ iceServers: unknown; expiresAt: number }>;
+		expect(reply!.iceServers).toEqual([
+			{ urls: "turn:turn.example.com:3478", username: "u", credential: "c" },
+		]);
+		expect(reply!.expiresAt).toBeGreaterThanOrEqual(before + 600_000);
+		expect(seen).toEqual([{ userId: "u-alice" }]);
+		await a.server.close();
+	});
+
+	test("answers with an empty list when no provider is set, or the provider fails", async () => {
+		const a = setupInstance("server-a");
+		await join(a, "alice", "acme");
+		a.transport.messageHandler!("alice", { type: "ice_request" });
+		await tick();
+
+		a.server.iceServers(() => {
+			throw new Error("TURN API down");
+		});
+		const errors: unknown[] = [];
+		const original = console.error;
+		console.error = (...args: unknown[]) => errors.push(args);
+		a.transport.messageHandler!("alice", { type: "ice_request" });
+		await tick();
+		console.error = original;
+
+		expect(iceRepliesFor(a, "alice")).toEqual([
+			{ type: "ice_servers", iceServers: [], expiresAt: null },
+			{ type: "ice_servers", iceServers: [], expiresAt: null },
+		]);
+		expect(errors).toHaveLength(1);
 		await a.server.close();
 	});
 });

@@ -11,6 +11,8 @@ import { serve } from "bun";
 import { MutationError } from "../../src/core/index.ts";
 import { createSyncServer } from "../../src/server/typed-server.ts";
 import { createBunWsServerTransport } from "../../src/transport/bun-ws.ts";
+import { cloudflareTurn, sharedSecretTurn } from "../../src/server/turn.ts";
+import type { IceServerProvider } from "../../src/server/types.ts";
 import {
 	MAX_NOTES_PER_ROOM,
 	MAX_ROOMS,
@@ -54,6 +56,31 @@ server.room("huddle/:roomId", ({ params }) =>
 );
 
 server.rateLimit({ opsPerSecond: 40, opsPerMinute: 1_200 });
+
+// ── TURN ───────────────────────────────────────────────────────────────
+
+/**
+ * Whichever TURN the environment configures; none is hardcoded. Without one,
+ * meshes fall back to public STUN, which connects most peers but not those
+ * behind strict NATs, and "relay only" stays off.
+ */
+function turnFromEnv(): IceServerProvider | null {
+	const env = process.env;
+	if (env.CLOUDFLARE_TURN_KEY_ID && env.CLOUDFLARE_TURN_API_TOKEN) {
+		return cloudflareTurn({
+			keyId: env.CLOUDFLARE_TURN_KEY_ID,
+			apiToken: env.CLOUDFLARE_TURN_API_TOKEN,
+		});
+	}
+	if (env.TURN_URLS && env.TURN_SHARED_SECRET) {
+		return sharedSecretTurn({ urls: env.TURN_URLS.split(","), secret: env.TURN_SHARED_SECRET });
+	}
+	return null;
+}
+
+const turn = turnFromEnv();
+if (turn) server.iceServers(turn);
+console.log(turn ? "[huddle] TURN configured" : "[huddle] no TURN configured; STUN only");
 
 server.implement("notes", {
 	room: "huddle/:roomId",
@@ -215,6 +242,10 @@ const app = listen(Number(process.env.PORT ?? 3006), {
 			const data: WsData = { id: `ws-${crypto.randomUUID().slice(0, 8)}`, req: request };
 			if (bunServer.upgrade(request, { data })) return;
 			return new Response("expected a websocket upgrade", { status: 426 });
+		}
+
+		if (url.pathname === "/config") {
+			return Response.json({ turn: turn !== null });
 		}
 
 		if (url.pathname === "/stats") {

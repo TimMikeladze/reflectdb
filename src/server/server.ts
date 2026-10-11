@@ -5,6 +5,7 @@ import type { TxAtomicAdapter } from "./tx-atomic.ts";
 
 import type {
 	AuthCallback,
+	IceServerProvider,
 	QueryCallback,
 	QueryOptions,
 	RoomCallback,
@@ -201,6 +202,10 @@ export function createServer<TDb = unknown, TAuth extends AuthContext = AuthCont
 				paramNames,
 				callback: callback as RoomCallback,
 			});
+		},
+
+		iceServers(provider: IceServerProvider<TAuth>): void {
+			handler.setIceServerProvider(provider);
 		},
 
 		rateLimit(cfg: RateLimitConfig): void {

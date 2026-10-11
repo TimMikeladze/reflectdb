@@ -15,6 +15,7 @@ import type {
 import type {
 	AuthCallback,
 	AuthorizeAction,
+	IceServerProvider,
 	MutateResult,
 	QueryOptions,
 	ResolvedOp,
@@ -233,6 +234,8 @@ export interface TypedSyncServer<
 	 */
 	view<K extends ViewKeys<TQueries> & string>(name: K, fn: ViewFn<TQueries, K, TAuth, TDb>): void;
 	room(pattern: string, callback: RoomCallback<TAuth>): void;
+	/** Serve STUN/TURN servers to WebRTC peer meshes. See `reflectdb/server/turn`. */
+	iceServers(provider: IceServerProvider<TAuth>): void;
 	rateLimit(config: RateLimitConfig): void;
 	compaction(config: CompactionConfig): void;
 	minSchemaVersion(version: number): void;
@@ -625,6 +628,7 @@ export function createSyncServer<
 		},
 
 		room: server.room,
+		iceServers: server.iceServers,
 		rateLimit: server.rateLimit,
 		compaction: server.compaction,
 		minSchemaVersion: server.minSchemaVersion,

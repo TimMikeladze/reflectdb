@@ -101,3 +101,24 @@ export function starterNotes(roomId: string): Note[] {
 		...note,
 	}));
 }
+
+// ── Peer input ─────────────────────────────────────────────────────────
+
+/**
+ * Colors arrive from peers and land in `style`; anything but a hex color (a
+ * `url(…)`, say, which would make every viewer fetch it) is replaced.
+ */
+export function safeColor(value: unknown): string {
+	return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : "#777777";
+}
+
+/** A peer could send an object as a name; React would throw rendering it and take the tab down. */
+export function safeName(value: unknown, fallback: string): string {
+	return typeof value === "string" && value.trim() ? value.trim().slice(0, 32) : fallback;
+}
+
+export function isPoint(
+	value: { x?: unknown; y?: unknown } | undefined,
+): value is { x: number; y: number } {
+	return !!value && Number.isFinite(value.x) && Number.isFinite(value.y);
+}

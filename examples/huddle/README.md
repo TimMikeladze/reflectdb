@@ -36,6 +36,24 @@ frames a second.
   one, and the camera starts only when you press "join". There is no shared lobby
   where strangers could see each other's cameras.
 
+## TURN (optional)
+
+Nothing is hardcoded. The server reads the provider from its environment and serves
+short-lived credentials over the sync connection:
+
+| Variables                                             | Provider                                                            |
+| ----------------------------------------------------- | ------------------------------------------------------------------- |
+| `CLOUDFLARE_TURN_KEY_ID`, `CLOUDFLARE_TURN_API_TOKEN` | Cloudflare Realtime TURN (dashboard → Realtime → TURN → create key) |
+| `TURN_URLS` (comma-separated), `TURN_SHARED_SECRET`   | coturn `use-auth-secret`, or any TURN REST-API server               |
+| neither                                               | public STUN only; "relay only" is disabled                          |
+
+With TURN set, the "relay only" toggle routes everything through the relay, and the
+peer list shows `relayed` instead of `direct`. On Fly:
+
+```bash
+fly secrets set -a reflectdb-huddle CLOUDFLARE_TURN_KEY_ID=… CLOUDFLARE_TURN_API_TOKEN=…
+```
+
 ## Run it
 
 ```bash

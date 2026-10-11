@@ -676,13 +676,40 @@ How it works, and its limits:
   rooms. New peers are found immediately whatever the interval.
 - **Failure.** A peer that does not connect within `connectTimeoutMs` (default 15 s)
   stays on the server path and is retried after a minute.
-- **NAT.** The default `iceServers` is Google's public STUN server, which connects most
-  peers. Users behind strict NATs need a TURN server, and you supply its credentials.
+- **NAT.** With no TURN configured, the mesh uses Google's public STUN server, which
+  connects most peers. Users behind strict NATs need TURN; see below.
 - **Privacy.** Peers in a room learn each other's IP addresses through ICE. Set
   `relayOnly` (it requires TURN) to route everything through the relay and hide them.
+  The mesh logs a warning if `relayOnly` is set with no TURN server, and
+  `usePeers()` reports `relayed` per peer once connected.
 - **Trust.** A peer-to-peer frame bypasses the server's rate limit and validation.
   The `clientId` and `userId` on it come from the server-relayed signaling, not from
-  the frame, but treat the frame's `data` as untrusted input.
+  the frame, but treat the frame's `data` as untrusted input. Each peer is capped at
+  300 frames and 50 control messages per second; the excess is dropped.
+
+**TURN, pluggable.** No TURN provider is built in or required. The server picks one with
+`server.iceServers(provider)`, and each browser gets short-lived credentials over its
+authenticated sync connection, so the long-lived secret never leaves the server and no
+credential sits at an open URL:
+
+```ts
+import { cloudflareTurn, sharedSecretTurn, staticIceServers } from "reflectdb/server/turn";
+
+// Cloudflare Realtime TURN: one API call per half-TTL, shared across clients.
+server.iceServers(cloudflareTurn({ keyId: env.CF_TURN_KEY_ID, apiToken: env.CF_TURN_API_TOKEN }));
+
+// Self-hosted coturn (use-auth-secret) or any TURN REST-API server: no network call.
+server.iceServers(sharedSecretTurn({ urls: ["turn:turn.example.com:3478"], secret: env.TURN_SECRET }));
+
+// Anything else (Twilio, Metered, your own service): any function of this shape.
+server.iceServers(async ({ auth }) => ({ iceServers: await myTurn(auth.userId), ttlSeconds: 3600 }));
+```
+
+On the client, `iceServers` is optional. Omit it and the mesh asks the server, falling
+back to public STUN if the server has no provider. Pass an array to use fixed servers,
+or a function to fetch credentials from anywhere. Credentials that expire are
+refreshed a minute early and pushed into live connections, so a long call outlives
+its first credential.
 - **Durable data never goes peer-to-peer.** Ops, permissions and ordering stay on the
   server. Use WebRTC only for the in-between states: the drag preview, not the drop.
 
@@ -1519,6 +1546,7 @@ import {
 | `.auth(callback)` | Validate the connection request and return an `AuthContext`. |
 | `.room(pattern, callback)` | Scope clients to a subset of data, matched against URL-style patterns (`org/:orgId`). Return `{ ok: false, reason }` to deny. |
 | `.rateLimit(config)` | Set per-user/per-table limits. Fail-open on limiter errors. |
+| `.iceServers(provider)` | Serve STUN/TURN servers (short-lived TURN credentials) to WebRTC peer meshes. Built-ins: `cloudflareTurn`, `sharedSecretTurn`, `staticIceServers` from `reflectdb/server/turn`. See [Peer-to-peer](#peer-to-peer-webrtc). |
 | `.compaction(config)` | Configure op-log compaction. |
 | `.rest({ prefix })` | Generate a CRUD fetch handler. |
 | `.minSchemaVersion(n)` | Reject clients on older schema versions. |

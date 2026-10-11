@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { NOTE_COLORS, applyNoteWrite, isRoomId, starterNotes } from "./schema.ts";
+import {
+	NOTE_COLORS,
+	applyNoteWrite,
+	isPoint,
+	isRoomId,
+	safeColor,
+	safeName,
+	starterNotes,
+} from "./schema.ts";
 
 describe("note writes", () => {
 	test("an insert clamps to the board, trims text and keeps the palette", () => {
@@ -42,5 +50,26 @@ describe("note writes", () => {
 		expect(starterNotes("fox-abc123").map((n) => n.id)).toEqual(
 			starterNotes("fox-abc123").map((n) => n.id),
 		);
+	});
+});
+
+describe("input from peers", () => {
+	test("only hex colors reach a style; a url() would make every viewer fetch it", () => {
+		expect(safeColor("#22c55e")).toBe("#22c55e");
+		expect(safeColor("url(https://evil.example/x)")).toBe("#777777");
+		expect(safeColor({ toString: () => "#fff" })).toBe("#777777");
+	});
+
+	test("a name that is not a string falls back instead of crashing the render", () => {
+		expect(safeName({ $$typeof: "x" }, "guest")).toBe("guest");
+		expect(safeName("  brisk otter  ", "guest")).toBe("brisk otter");
+		expect(safeName("x".repeat(100), "guest")).toHaveLength(32);
+	});
+
+	test("positions must be finite numbers", () => {
+		expect(isPoint({ x: 0.2, y: 0.4 })).toBe(true);
+		expect(isPoint({ x: "0.2", y: 0.4 })).toBe(false);
+		expect(isPoint({ x: Number.NaN, y: 0 })).toBe(false);
+		expect(isPoint(undefined)).toBe(false);
 	});
 });

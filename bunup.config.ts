@@ -34,6 +34,7 @@ const entry = [
 	"src/server/ephemeral/index.ts",
 	"src/server/ephemeral/redis.ts",
 	"src/server/ephemeral/postgres.ts",
+	"src/server/turn.ts",
 	"src/server/storage/object/index.ts",
 ];
 

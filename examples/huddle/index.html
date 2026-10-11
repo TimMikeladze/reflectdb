@@ -71,8 +71,20 @@
 				padding: 2px 6px;
 				border-radius: 6px;
 			}
-			.status {
+			.toggle {
 				margin-left: auto;
+				display: inline-flex;
+				align-items: center;
+				gap: 6px;
+				font-size: 12px;
+				color: var(--muted);
+				cursor: pointer;
+			}
+			.toggle:has(input:disabled) {
+				opacity: 0.55;
+				cursor: default;
+			}
+			.status {
 				font-size: 12px;
 				color: var(--muted);
 			}
@@ -291,6 +303,10 @@
 			}
 			.route.server-only {
 				color: var(--muted);
+			}
+			.route.relayed {
+				color: var(--accent);
+				border-color: rgba(124, 156, 255, 0.4);
 			}
 			.rate {
 				font-size: 11px;

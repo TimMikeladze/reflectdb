@@ -176,6 +176,44 @@ mesh.leave(); // also cancels a join still waiting on the camera prompt
 - Full mesh only. Above ~6 video participants, uplink bandwidth becomes the limit. The doc
   says so and points to an SFU (LiveKit, Cloudflare Calls); building an SFU is out of scope.
 
+## ICE servers (STUN/TURN): pluggable
+
+No provider is built in or hardcoded. The server picks one, the browser gets short-lived
+credentials over the connection it already has, and an app can bypass both.
+
+- **Server:** `server.iceServers(provider)`, where a provider is
+  `(ctx: { auth }) => { iceServers, ttlSeconds? }` (sync or async). Built-ins live in
+  `reflectdb/server/turn`:
+  - `cloudflareTurn({ keyId, apiToken, ttlSeconds? })`: calls Cloudflare Realtime
+    `POST /v1/turn/keys/{keyId}/credentials/generate-ice-servers`. It caches one
+    credential for half its TTL, so a busy room makes one API call, not one per peer.
+    It drops `:53` URLs, which browsers block.
+  - `sharedSecretTurn({ urls, secret, ttlSeconds? })`: the TURN REST-API scheme (coturn
+    `use-auth-secret`, and most self-hosted servers). The username is
+    `expiry:userId` and the credential is HMAC-SHA1 of it under the shared secret. No
+    network call.
+  - `staticIceServers(servers)`: a fixed list, such as STUN only.
+  - Any function you write, for Twilio, Metered or your own service.
+- **Protocol:** the client sends `{ type: "ice_request" }` and the server answers
+  `{ type: "ice_servers", iceServers, expiresAt }`, with an empty list when no provider is
+  set. Requests are metered in the ephemeral bucket and need an authenticated session,
+  so credentials never sit at an open URL. An old server ignores the request, and the
+  client times out after 5 s.
+- **Client:** `createPeerMesh` / `<PeerMeshProvider>` take `iceServers` as:
+  - omitted (default): ask the server, and fall back to Google STUN if it has no
+    provider;
+  - an array: use it as is;
+  - a function: called for servers, returning an array or `{ iceServers, expiresAt }`,
+    so an app can fetch credentials from anywhere.
+
+  The mesh resolves ICE servers before it announces or answers anyone, refreshes them a
+  minute before `expiresAt`, and pushes fresh credentials into live connections with
+  `setConfiguration`, so a long call outlives its first credential.
+
+- **`relayOnly` without TURN** logs a warning: every peer would time out to `server-only`.
+- **Relayed or direct:** `PeerInfo.relayed` reports whether the selected candidate pair
+  goes through TURN, read from `getStats()` once connected.
+
 ## Bindings
 
 - React: `<PeerMeshProvider iceServers>`, `usePeers()`, `useCall()`; `useEphemeral`

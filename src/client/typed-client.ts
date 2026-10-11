@@ -1,4 +1,10 @@
-import type { ClientOp, ClientTransport, EphemeralEvent, SignalEvent } from "../core/types.ts";
+import type {
+	ClientOp,
+	ClientTransport,
+	EphemeralEvent,
+	IceServer,
+	SignalEvent,
+} from "../core/types.ts";
 import type {
 	SyncQueryMap,
 	InferRow,
@@ -104,6 +110,9 @@ export interface TypedSyncClient<TQueries extends SyncQueryMap> {
 	getClientId(): string;
 	sendSignal(to: string, data: Record<string, unknown>): Promise<void>;
 	subscribeSignal(listener: (event: SignalEvent) => void): () => void;
+	requestIceServers(
+		timeoutMs?: number,
+	): Promise<{ iceServers: IceServer[]; expiresAt: number | null } | null>;
 }
 
 // ── Factory ─────────────────────────────────────────────────────────────

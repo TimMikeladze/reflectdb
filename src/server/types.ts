@@ -2,6 +2,7 @@ import type {
 	AuthContext,
 	CompactionConfig,
 	ConflictPolicy,
+	IceServer,
 	OpType,
 	RateLimitConfig,
 } from "../core/types.ts";
@@ -263,10 +264,29 @@ export interface RoomCallback<TAuth extends AuthContext = AuthContext> {
 	}): void | RoomCallbackResult | Promise<void | RoomCallbackResult>;
 }
 
+/** What an ICE server provider returns. */
+export interface IceServersResult {
+	iceServers: IceServer[];
+	/** How long the credentials in `iceServers` stay valid. Omit for ones that never expire (STUN). */
+	ttlSeconds?: number;
+}
+
+/**
+ * Supplies STUN/TURN servers to WebRTC peer meshes, asked once per client over
+ * the authenticated connection. Built-ins live in `reflectdb/server/turn`
+ * (`cloudflareTurn`, `sharedSecretTurn`, `staticIceServers`); any function of
+ * this shape works.
+ */
+export type IceServerProvider<TAuth extends AuthContext = AuthContext> = (ctx: {
+	auth: TAuth;
+}) => IceServersResult | Promise<IceServersResult>;
+
 export interface SyncServer<TAuth extends AuthContext = AuthContext, TDb = unknown> {
 	auth(callback: AuthCallback): void;
 	query(name: string, callback: QueryCallback<TAuth, TDb>, options: QueryOptions<TAuth, TDb>): void;
 	room(pattern: string, callback: RoomCallback<TAuth>): void;
+	/** Serve STUN/TURN servers to WebRTC peer meshes. See `reflectdb/server/turn`. */
+	iceServers(provider: IceServerProvider<TAuth>): void;
 	rateLimit(config: RateLimitConfig): void;
 	compaction(config: CompactionConfig): void;
 	minSchemaVersion(version: number): void;

@@ -167,6 +167,11 @@ export interface SignalMessage {
 	data: Record<string, unknown>;
 }
 
+/** Ask the server for ICE (STUN/TURN) servers, with short-lived TURN credentials. */
+export interface IceRequestMessage {
+	type: "ice_request";
+}
+
 // Server → Client
 
 export interface HelloAckMessage {
@@ -280,6 +285,24 @@ export interface EphemeralEvent {
 	ttlMs?: number;
 }
 
+/**
+ * One STUN or TURN server, shaped like the DOM's `RTCIceServer` but defined
+ * here so server code needs no DOM types.
+ */
+export interface IceServer {
+	urls: string | string[];
+	username?: string;
+	credential?: string;
+}
+
+/** Reply to `ice_request`. Empty `iceServers` means the server has no provider set. */
+export interface IceServersMessage {
+	type: "ice_servers";
+	iceServers: IceServer[];
+	/** Epoch ms after which TURN credentials stop working; null when they don't expire. */
+	expiresAt: number | null;
+}
+
 /** A `signal` from a peer. `from` and `userId` come from the sender's session. */
 export interface SignalEvent {
 	type: "signal";
@@ -300,7 +323,8 @@ export type ClientMessage =
 	| UnsyncMessage
 	| AuthMessage
 	| EphemeralMessage
-	| SignalMessage;
+	| SignalMessage
+	| IceRequestMessage;
 
 export type ServerMessage =
 	| HelloAckMessage
@@ -317,6 +341,7 @@ export type ServerMessage =
 	| ReauthMessage
 	| EphemeralEvent
 	| SignalEvent
+	| IceServersMessage
 	| CountChangedMessage;
 
 export type SyncMessage = ClientMessage | ServerMessage;

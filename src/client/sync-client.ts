@@ -6,6 +6,7 @@ import type {
 	OpType,
 	EphemeralEvent,
 	SignalEvent,
+	IceServer,
 } from "../core/types.ts";
 import { PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS, MAX_BATCH_SIZE } from "../core/types.ts";
 import { receiveHlc, unpackHlc } from "../core/hlc.ts";
@@ -106,6 +107,8 @@ export class SyncClient {
 	private connectInFlight: Promise<void> | null = null;
 	private ephemeralListeners = new Map<string, Set<(event: EphemeralEvent) => void>>();
 	private signalListeners = new Set<(event: SignalEvent) => void>();
+	/** Callers waiting on an `ice_servers` reply. */
+	private iceWaiters = new Set<(reply: { iceServers: IceServer[]; expiresAt: number | null }) => void>();
 	private ephemeralRouter: EphemeralRouter | null = null;
 	/** Highest `__seq` delivered per `clientId\0key`. */
 	private ephemeralSeen = new Map<string, number>();
@@ -591,6 +594,37 @@ export class SyncClient {
 		await this.transport.send({ type: "signal", to, data });
 	}
 
+	/**
+	 * Ask the server for STUN/TURN servers (`server.iceServers()`). Resolves to
+	 * null when the server has no provider, is too old to answer, or does not
+	 * reply within `timeoutMs` — the caller picks its own fallback.
+	 */
+	async requestIceServers(
+		timeoutMs = 5_000,
+	): Promise<{ iceServers: IceServer[]; expiresAt: number | null } | null> {
+		const reply = new Promise<{ iceServers: IceServer[]; expiresAt: number | null } | null>(
+			(resolve) => {
+				const waiter = (value: { iceServers: IceServer[]; expiresAt: number | null }) => {
+					clearTimeout(timer);
+					this.iceWaiters.delete(waiter);
+					resolve(value);
+				};
+				const timer = setTimeout(() => {
+					this.iceWaiters.delete(waiter);
+					resolve(null);
+				}, timeoutMs);
+				this.iceWaiters.add(waiter);
+			},
+		);
+		try {
+			await this.transport.send({ type: "ice_request" });
+		} catch {
+			return null;
+		}
+		const result = await reply;
+		return result && result.iceServers.length > 0 ? result : null;
+	}
+
 	subscribeSignal(listener: (event: SignalEvent) => void): () => void {
 		this.signalListeners.add(listener);
 		return () => {
@@ -919,6 +953,12 @@ export class SyncClient {
 
 			case "signal":
 				for (const listener of this.signalListeners) listener(message);
+				break;
+
+			case "ice_servers":
+				for (const waiter of this.iceWaiters) {
+					waiter({ iceServers: message.iceServers, expiresAt: message.expiresAt });
+				}
 				break;
 		}
 	}

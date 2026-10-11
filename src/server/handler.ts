@@ -7,6 +7,7 @@ import type {
 	EphemeralEvent,
 	EphemeralMessage,
 	SignalMessage,
+	IceServer,
 	LoadMoreMessage,
 } from "../core/types.ts";
 // OpType re-export to keep handler types aligned with SyncServer.applyServerOp signature.
@@ -24,6 +25,7 @@ import type { ClientSession } from "./session.ts";
 import type {
 	AuthCallback,
 	AuthorizeAction,
+	IceServerProvider,
 	MutationContext,
 	QueryCallback,
 	QueryOptions,
@@ -726,6 +728,9 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 				break;
 			case "signal":
 				await this.handleSignal(clientId, message as SignalMessage);
+				break;
+			case "ice_request":
+				await this.handleIceRequest(clientId);
 				break;
 		}
 	}
@@ -1565,7 +1570,8 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 		// they hold no session for this sender — so they travel on the bus.
 		const targets: EphemeralTarget[] = [];
 		for (const queryName of queryNames) {
-			// If sender has a room, scope to that room; otherwise broadcast to all subscribers
+			// Scoped to the sender's room for this query; a sender with no room
+			// reaches only subscribers that have none either.
 			const senderSub = session.subscriptions.get(queryName);
 			targets.push({ query: queryName, room: senderSub?.roomKey ?? null });
 		}
@@ -1588,6 +1594,41 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 				console.error("[reflectdb] ephemeral publish failed:", err);
 			}
 		}
+	}
+
+	/** Set by `server.iceServers()`. Null means "no provider": clients fall back to their own default. */
+	private iceServerProvider: IceServerProvider<TAuth> | null = null;
+
+	setIceServerProvider(provider: IceServerProvider<TAuth> | null): void {
+		this.iceServerProvider = provider;
+	}
+
+	/**
+	 * Hand a client its STUN/TURN servers. Only an authenticated session gets
+	 * here (the central gate), so TURN credentials never sit at an open URL; and
+	 * it is metered like any ephemeral frame, so a client cannot turn a paid TURN
+	 * API into an amplifier.
+	 */
+	private async handleIceRequest(clientId: string): Promise<void> {
+		const session = this.sessions.get(clientId);
+		if (!session?.auth) return;
+		if (!this.allowEphemeral(clientId)) {
+			this.emit({ type: "ephemeral_rate_limited", clientId });
+			return;
+		}
+		let iceServers: IceServer[] = [];
+		let expiresAt: number | null = null;
+		if (this.iceServerProvider) {
+			try {
+				const result = await this.iceServerProvider({ auth: session.auth });
+				iceServers = result.iceServers;
+				expiresAt = result.ttlSeconds ? Date.now() + result.ttlSeconds * 1000 : null;
+			} catch (err) {
+				// The client falls back to STUN; a TURN outage must not break signaling.
+				console.error("[reflectdb] ICE server provider failed:", err);
+			}
+		}
+		await this.trySend(clientId, { type: "ice_servers", iceServers, expiresAt });
 	}
 
 	/**
@@ -1686,6 +1727,11 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 		for (const target of targets) {
 			const subscribers = this.sessions.getSubscribersForQuery(target.query, target.room);
 			for (const sub of subscribers) {
+				// Exact room match, null included. A sender without a room reaches
+				// only room-less subscribers: otherwise any client could write
+				// into every room of the query by subscribing without one.
+				const room = sub.subscriptions.get(target.query)?.roomKey ?? null;
+				if (room !== target.room) continue;
 				if (sub.clientId !== exclude && !sent.has(sub.clientId)) {
 					sent.add(sub.clientId);
 					recipients.push(sub.clientId);

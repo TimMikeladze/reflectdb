@@ -11,6 +11,7 @@ const VALID_CLIENT_MESSAGE_TYPES = new Set([
 	"auth",
 	"ephemeral",
 	"signal",
+	"ice_request",
 ]);
 
 const VALID_OP_TYPES = new Set(["insert", "update", "delete"]);

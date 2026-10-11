@@ -16,7 +16,15 @@ import {
 } from "../../src/react/index.ts";
 import { PeerMeshProvider, useCall, usePeerMesh, usePeers } from "../../src/react/webrtc.tsx";
 import type { CallParticipant, PeerInfo } from "../../src/react/webrtc.tsx";
-import { MAX_NOTES_PER_ROOM, NOTE_COLORS, isRoomId, starterNotes } from "./schema.ts";
+import {
+	MAX_NOTES_PER_ROOM,
+	NOTE_COLORS,
+	isPoint,
+	isRoomId,
+	safeColor,
+	safeName,
+	starterNotes,
+} from "./schema.ts";
 import type { Note } from "./schema.ts";
 
 // ── Identity, per tab ───────────────────────────────────────────────────
@@ -55,13 +63,15 @@ function currentRoom(): string {
 	const url = new URL(location.href);
 	const room = url.searchParams.get("room");
 	if (isRoomId(room)) return room;
-	const fresh = `${pick(ANIMALS)}-${crypto.randomUUID().slice(0, 6)}`;
+	// 64 random bits: the link is the only key to the room and its call.
+	const fresh = `${pick(ANIMALS)}-${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
 	url.searchParams.set("room", fresh);
 	history.replaceState(null, "", url);
 	return fresh;
 }
 
 type Cursor = { x: number; y: number; name: string; color: string };
+
 type Drag = { id: string; x: number; y: number; done?: boolean };
 type Who = { name: string; color: string };
 
@@ -165,8 +175,8 @@ function Board({ roomId, onSent }: { roomId: string; onSent: () => void }) {
 	const positionOf = (note: Note): { x: number; y: number; by?: string } => {
 		if (dragging?.id === note.id) return dragging;
 		for (const [peerId, drag] of Object.entries(drags.events)) {
-			if (drag.id === note.id && !drag.done) {
-				return { x: drag.x, y: drag.y, by: cursors.events[peerId]?.color };
+			if (drag.id === note.id && !drag.done && isPoint(drag)) {
+				return { x: drag.x, y: drag.y, by: safeColor(cursors.events[peerId]?.color) };
 			}
 		}
 		return note;
@@ -218,22 +228,24 @@ function Board({ roomId, onSent }: { roomId: string; onSent: () => void }) {
 						/>
 					);
 				})}
-				{Object.entries(cursors.events).map(([peerId, cursor]) => (
-					<div
-						key={peerId}
-						className="cursor"
-						style={{
-							left: `${cursor.x * 100}%`,
-							top: `${cursor.y * 100}%`,
-							["--c" as string]: cursor.color,
-						}}
-					>
-						<svg viewBox="0 0 14 16" aria-hidden="true">
-							<path d="M0 0l13 5-5 2-2 5z" />
-						</svg>
-						<span>{cursor.name}</span>
-					</div>
-				))}
+				{Object.entries(cursors.events)
+					.filter(([, cursor]) => isPoint(cursor))
+					.map(([peerId, cursor]) => (
+						<div
+							key={peerId}
+							className="cursor"
+							style={{
+								left: `${cursor.x * 100}%`,
+								top: `${cursor.y * 100}%`,
+								["--c" as string]: safeColor(cursor.color),
+							}}
+						>
+							<svg viewBox="0 0 14 16" aria-hidden="true">
+								<path d="M0 0l13 5-5 2-2 5z" />
+							</svg>
+							<span>{safeName(cursor.name, "guest")}</span>
+						</div>
+					))}
 			</div>
 		</section>
 	);
@@ -300,6 +312,10 @@ const ROUTE_LABEL: Record<PeerInfo["state"], string> = {
 	connecting: "connecting",
 	"server-only": "via server",
 };
+
+function routeLabel(peer: PeerInfo): string {
+	return peer.state === "connected" && peer.relayed ? "relayed" : ROUTE_LABEL[peer.state];
+}
 
 function Panel({ sentPerSecond }: { sentPerSecond: number }) {
 	const client = useSyncClient();
@@ -376,10 +392,13 @@ function Panel({ sentPerSecond }: { sentPerSecond: number }) {
 					const label = who.events[peer.clientId];
 					return (
 						<li key={peer.clientId}>
-							<span className="dot" style={{ background: label?.color ?? "#777" }} />
-							<span className="name">{label?.name ?? peer.clientId}</span>
-							<span className={`route ${peer.state}`} data-testid={`route-${peer.clientId}`}>
-								{ROUTE_LABEL[peer.state]}
+							<span className="dot" style={{ background: safeColor(label?.color) }} />
+							<span className="name">{safeName(label?.name, peer.clientId)}</span>
+							<span
+								className={`route ${peer.state === "connected" && peer.relayed ? "relayed" : peer.state}`}
+								data-testid={`route-${peer.clientId}`}
+							>
+								{routeLabel(peer)}
 							</span>
 							<span className="rate">{received[peer.clientId] ?? 0}/s</span>
 						</li>
@@ -466,7 +485,7 @@ function Huddle() {
 		action().catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
 	};
 
-	const nameOf = (p: CallParticipant) => who.events[p.clientId]?.name ?? p.clientId;
+	const nameOf = (p: CallParticipant) => safeName(who.events[p.clientId]?.name, p.clientId);
 
 	return (
 		<section className="huddle" data-testid="huddle">
@@ -560,7 +579,17 @@ function FragmentTiles({ participant, name }: { participant: CallParticipant; na
 
 // ── App ─────────────────────────────────────────────────────────────────
 
-function Room({ roomId }: { roomId: string }) {
+function Room({
+	roomId,
+	relayOnly,
+	turnAvailable,
+	onRelayOnly,
+}: {
+	roomId: string;
+	relayOnly: boolean;
+	turnAvailable: boolean;
+	onRelayOnly: (on: boolean) => void;
+}) {
 	const status = useSyncStatus();
 	const [rates, bumpSent] = useRates();
 	const [copied, setCopied] = useState(false);
@@ -587,6 +616,22 @@ function Room({ roomId }: { roomId: string }) {
 				</span>
 				<button onClick={copyLink}>{copied ? "copied" : "copy link"}</button>
 				<button onClick={() => window.open(location.href, "_blank")}>open a second tab</button>
+				<label
+					className="toggle"
+					title={
+						turnAvailable
+							? "Route everything through TURN so peers never see your IP address"
+							: "This server has no TURN configured"
+					}
+				>
+					<input
+						type="checkbox"
+						checked={relayOnly}
+						disabled={!turnAvailable}
+						onChange={(event) => onRelayOnly(event.target.checked)}
+					/>
+					relay only
+				</label>
 				<span className={`status ${status}`}>{status}</span>
 			</header>
 			<main>
@@ -606,10 +651,27 @@ function Room({ roomId }: { roomId: string }) {
 function App() {
 	const roomId = useMemo(currentRoom, []);
 	const scheme = location.protocol === "https:" ? "wss" : "ws";
+	const [turnAvailable, setTurnAvailable] = useState(false);
+	const [relayOnly, setRelayOnly] = useState(false);
+
+	useEffect(() => {
+		fetch("/config")
+			.then((res) => res.json() as Promise<{ turn: boolean }>)
+			.then((config) => setTurnAvailable(config.turn))
+			.catch(() => {});
+	}, []);
+
 	return (
 		<SyncProvider url={`${scheme}://${location.host}/sync`} token={me.token}>
-			<PeerMeshProvider>
-				<Room roomId={roomId} />
+			{/* The mesh reads its config once, so a new key rebuilds it with the new policy.
+			    No iceServers: the mesh asks this server, which mints TURN credentials if it has a provider. */}
+			<PeerMeshProvider key={relayOnly ? "relay" : "any"} relayOnly={relayOnly}>
+				<Room
+					roomId={roomId}
+					relayOnly={relayOnly}
+					turnAvailable={turnAvailable}
+					onRelayOnly={setRelayOnly}
+				/>
 			</PeerMeshProvider>
 		</SyncProvider>
 	);

@@ -6,6 +6,8 @@ export type {
 	QueryCallback,
 	AuthCallback,
 	RoomCallback,
+	IceServerProvider,
+	IceServersResult,
 	SyncServer,
 	ResolvedOp,
 	MutateResult,

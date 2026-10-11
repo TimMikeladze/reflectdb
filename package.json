@@ -244,6 +244,16 @@
 				"default": "./dist/cjs/server/ephemeral/redis.cjs"
 			}
 		},
+		"./server/turn": {
+			"import": {
+				"types": "./dist/server/turn.d.ts",
+				"default": "./dist/server/turn.js"
+			},
+			"require": {
+				"types": "./dist/cjs/server/turn.d.cts",
+				"default": "./dist/cjs/server/turn.cjs"
+			}
+		},
 		"./server/ephemeral/postgres": {
 			"import": {
 				"types": "./dist/server/ephemeral/postgres.d.ts",
