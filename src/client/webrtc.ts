@@ -125,6 +125,8 @@ const MAX_FRAME_BYTES = 64 * 1024;
 /** Above this, an unreliable channel is congested; skip rather than queue. */
 const MAX_BUFFERED_BYTES = 256 * 1024;
 const MAX_ICE_RESTARTS = 2;
+const MAX_PARTIAL_DESCRIPTIONS = 4;
+const MAX_PENDING_CANDIDATES = 64;
 
 type ControlMessage =
 	| { t: "call"; on: boolean }
@@ -193,6 +195,8 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 	let local: LocalCall | null = null;
 	/** A capture in flight, so a second call() or shareScreen() waits on it instead of opening another device. */
 	let joining: Promise<void> | null = null;
+	/** Bumped by leave(); a join that resolves under an older value was cancelled. */
+	let callEpoch = 0;
 	let sharing: Promise<void> | null = null;
 	let destroyed = false;
 	let snapshot: PeerMeshSnapshot = { peers: [], call: null };
@@ -309,8 +313,13 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 		const cutoff = Date.now() - presenceTtlMs;
 		let pruned = false;
 		for (const [id, info] of known) {
-			if (info.lastSeen < cutoff && !peers.has(id)) {
+			if (info.lastSeen >= cutoff) continue;
+			const peer = peers.get(id);
+			// A peer we gave up on has no connection to report its departure,
+			// so silence is the only signal it left.
+			if (!peer || peer.state === "server-only") {
 				known.delete(id);
+				peers.delete(id);
 				pruned = true;
 			}
 		}
@@ -398,6 +407,12 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 			if (typeof data.p !== "string" || data.n > 64 || data.i < 0 || data.i >= data.n) return;
 			let parts = peer.chunks.get(data.id);
 			if (!parts) {
+				// Only a description or two is ever in flight; unfinished ones a
+				// peer abandons must not accumulate.
+				if (peer.chunks.size >= MAX_PARTIAL_DESCRIPTIONS) {
+					const oldest = peer.chunks.keys().next().value;
+					if (oldest !== undefined) peer.chunks.delete(oldest);
+				}
 				parts = Array.from<string>({ length: data.n });
 				peer.chunks.set(data.id, parts);
 			}
@@ -410,7 +425,9 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 		} else if (data.t === "ice" && data.c && typeof data.c === "object") {
 			const candidate = data.c as RTCIceCandidateInit;
 			if (!peer.pc.remoteDescription) {
-				peer.pendingCandidates.push(candidate);
+				if (peer.pendingCandidates.length < MAX_PENDING_CANDIDATES) {
+					peer.pendingCandidates.push(candidate);
+				}
 				return;
 			}
 			try {
@@ -711,6 +728,13 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 			// Throttle the server copy only while everyone known is direct;
 			// otherwise a server-only peer would see the reduced rate.
 			if (!everyoneDirect()) {
+				// A frame parked for the trailing edge is older than this one;
+				// sending it later would leave the server on a stale value.
+				const parked = trailing.get(params.key);
+				if (parked) {
+					clearTimeout(parked.timer);
+					trailing.delete(params.key);
+				}
 				lastServerSend.set(params.key, Date.now());
 				await viaServer(withSeq);
 				return;
@@ -870,6 +894,8 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 	}
 
 	function leave(): void {
+		// Cancels a join still waiting on the camera prompt, too.
+		callEpoch++;
 		if (!local) return;
 		const leaving = local;
 		local = null;
@@ -901,10 +927,11 @@ export function createPeerMesh(client: PeerMeshClient, config: PeerMeshConfig = 
 
 		call(source = { audio: true, video: true }) {
 			if (local || destroyed) return Promise.resolve();
+			const epoch = callEpoch;
 			joining ??= (async () => {
 				const camera = isMediaStream(source) ? source : await mediaDevices().getUserMedia(source);
-				if (destroyed || local) {
-					// Destroyed meanwhile: release the device rather than leave its light on.
+				if (destroyed || local || epoch !== callEpoch) {
+					// Destroyed or left meanwhile: release the device rather than leave its light on.
 					if (camera !== source) for (const track of camera.getTracks()) track.stop();
 					return;
 				}

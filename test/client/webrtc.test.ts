@@ -313,6 +313,14 @@ describe("peer mesh", () => {
 			mesh.leave();
 			expect(stopped).toEqual(["cam-1"]);
 			expect(mesh.getSnapshot().call).toBeNull();
+
+			// Leaving while the prompt is still open cancels the join: the
+			// camera it eventually returns is released, never left running.
+			const pending = mesh.call();
+			mesh.leave();
+			await pending;
+			expect(mesh.getSnapshot().call).toBeNull();
+			expect(stopped).toEqual(["cam-1", "cam-2"]);
 		} finally {
 			if (original) Object.defineProperty(globalThis, "navigator", original);
 		}

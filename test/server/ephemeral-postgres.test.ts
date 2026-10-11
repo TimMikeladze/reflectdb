@@ -325,3 +325,23 @@ describePostgres("postgres ephemeral adapter", () => {
 		expect(() => createPostgresEphemeral({ client: pool!, channel: "a-b" })).toThrow();
 	});
 });
+
+// Runs without a database: the LISTEN seam and a stub query client are enough.
+describe("postgres ephemeral bus startup", () => {
+	test("a failed first LISTEN is not cached; the next attempt succeeds", async () => {
+		let attempts = 0;
+		const adapter = createPostgresEphemeral({
+			client: { query: async () => ({ rows: [] }) } as never,
+			listener: {
+				listen: async () => {
+					attempts++;
+					if (attempts === 1) throw new Error("connection refused");
+				},
+			},
+		});
+
+		await expect(adapter.ready()).rejects.toThrow("connection refused");
+		await adapter.ready();
+		expect(attempts).toBe(2);
+	});
+});

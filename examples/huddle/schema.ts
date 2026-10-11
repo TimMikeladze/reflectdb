@@ -26,7 +26,10 @@ export const queries = defineSyncQueries({
 });
 
 export const MAX_NOTES_PER_ROOM = 24;
-export const MAX_ROOMS = 500;
+/** A room's notes are a few KB, so this bounds memory well under the 256 MB Machine. */
+export const MAX_ROOMS = 2_000;
+/** A room nobody has read or written for this long is cleared, freeing its slot. */
+export const ROOM_IDLE_MS = 30 * 60_000;
 export const MAX_TEXT = 140;
 export const NOTE_COLORS = ["#fde68a", "#bbf7d0", "#bfdbfe", "#fbcfe8", "#ddd6fe"] as const;
 
@@ -34,6 +37,13 @@ const ROOM_ID = /^[a-z0-9-]{3,32}$/;
 
 export function isRoomId(value: unknown): value is string {
 	return typeof value === "string" && ROOM_ID.test(value);
+}
+
+/** Note ids are Map keys held in memory, so their length is bounded too. */
+const NOTE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+export function isNoteId(value: unknown): value is string {
+	return typeof value === "string" && NOTE_ID.test(value);
 }
 
 function clamp01(value: unknown, fallback: number): number {
@@ -54,6 +64,7 @@ export function applyNoteWrite(
 	payload: Partial<Note>,
 ): Note | string {
 	if (!isRoomId(roomId)) return "invalid room";
+	if (!isNoteId(rowId)) return "invalid note id";
 	if (existing && existing.roomId !== roomId) return "note belongs to another room";
 	const base: Note = existing ?? {
 		id: rowId,

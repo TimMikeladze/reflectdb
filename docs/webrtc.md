@@ -50,7 +50,9 @@ interface SignalEvent {
 
 - **Targeted, not stored.** Delivered to the client `to` only. Never touches `EphemeralAdapter.set`.
 - **Authorization: shared room.** Delivered only if sender and recipient share at
-  least one room subscription. The sender's rooms are resolved on the origin
+  least one subscription with the same room, matched exactly. A sender whose
+  subscription has no room reaches only recipients whose subscription to that query
+  also has none, never a client inside a room. The sender's rooms are resolved on the origin
   instance (same as `targets` today); the recipient check runs on the instance
   holding the recipient's socket. No shared room means a silent drop, so a client cannot
   probe for the existence of another client ID.
@@ -98,12 +100,21 @@ A
 peer appears via the presence snapshot or a live `__rtc` event, and leaves when that entry
 expires or the connection closes.
 
-**Negotiation.** This is the standard "perfect negotiation" pattern. The polite peer is the one with
-the lexicographically lower `clientId`, so both sides agree without a round-trip.
-ICE restart on `failed`; after 2 failed restarts, or no connection within
-`connectTimeoutMs`, the peer is marked `server-only`. After a 60 s cool-down, its next
-announce or offer starts a fresh attempt. When the far side closes the connection, the
-peer is dropped from the list until it announces again.
+**Negotiation.** This is the standard "perfect negotiation" pattern. The lower `clientId`
+opens the connection and is impolite; the higher one is polite and yields on an offer
+collision. Both sides agree without a round-trip.
+
+**Failure.** Two cases, handled differently:
+
+- _Never connected_ within `connectTimeoutMs`: the peer is marked `server-only` and stays
+  on the server path. After a 60 s cool-down, its next announce or offer starts a fresh
+  attempt. If it falls silent for three announce intervals, it is dropped.
+- _Connected, then lost_ (`disconnected` or `failed`): the peer leaves the direct path at
+  once (state `connecting`, so `auto` stops throttling for it). ICE is restarted on
+  `failed`, at most twice. If the connection has not recovered within
+  `connectTimeoutMs`, the peer is treated as gone and dropped until it announces again.
+  A clean close from the far side (including a closing tab, which closes its
+  connections on `pagehide`) drops the peer immediately.
 
 **Signals are handled one at a time, in arrival order**, so an answer is never built
 while the offer before it is still being applied.
@@ -115,22 +126,28 @@ local track, including those of a stream the app passed in.
 **Channels per peer.**
 
 - `eph` — `{ ordered: false, maxRetransmits: 0 }`. Ephemeral frames.
-- `ctl` — reliable. Control messages: track metadata (`camera` / `screen`), mute state, and `bye`.
+- `ctl` — reliable, JSON. The whole control vocabulary:
+  - `{ t: "call", on: boolean }`: joined or left the call.
+  - `{ t: "stream", id, kind: "camera" | "screen" }`: label for a stream's tracks, sent before they are added.
+  - `{ t: "unstream", id }`: that stream was removed.
+  - `{ t: "mute", audio: boolean, video: boolean }`: current mute state.
 
 ## Routing ephemeral frames
 
 `sendEphemeral` / `useEphemeral` gain `transport`:
 
-| `transport`                         | P2P-connected peers | Everyone else     | Server store / joiner snapshot |
-| ----------------------------------- | ------------------- | ----------------- | ------------------------------ |
-| `"server"` (default without a mesh) | server              | server            | every frame                    |
-| `"auto"` (default with a mesh)      | P2P every frame     | server, throttled | throttled frames               |
-| `"p2p"`                             | P2P every frame     | nothing           | nothing                        |
+| `transport`                         | P2P-connected peers | Everyone else | Server store / joiner snapshot                                    |
+| ----------------------------------- | ------------------- | ------------- | ----------------------------------------------------------------- |
+| `"server"` (default without a mesh) | server              | server        | every frame                                                       |
+| `"auto"` (default with a mesh)      | P2P every frame     | server        | throttled while every known peer is direct; every frame otherwise |
+| `"p2p"`                             | P2P every frame     | nothing       | nothing                                                           |
 
-- **`auto` throttle.** The server copy goes out at most every 100 ms per key (leading and trailing
-  edge, so the final position always lands). This keeps joiner snapshots,
-  server-only peers, and SSR/htmx consumers correct at 10 Hz, while connected peers
-  get 60 Hz.
+- **`auto` throttle.** While every peer the mesh knows of is connected directly, the
+  server copy goes out at most every 100 ms per key (leading and trailing edge, so the
+  final position always lands). Joiner snapshots and clients without a mesh then see
+  10 Hz while connected peers get 60 Hz. As soon as any known peer is not direct, every
+  frame also goes through the server, and a parked trailing frame is dropped, so the
+  server never ends on a stale value.
 - **Dedupe.** Every frame carries `seq` (monotonic per client and key). A receiver keeps
   the highest `seq` per (clientId, key) and drops older frames. That covers the same
   frame arriving over both paths and out-of-order data channel delivery. `seq` sits
@@ -144,25 +161,27 @@ local track, including those of a stream the app passed in.
 ## Media (#2, #5b)
 
 ```ts
-const call = mesh.call({ audio: true, video: true }); // joins this room's call
-await call.shareScreen(); // adds a "screen" track
-call.participants; // Map<clientId, { camera?: MediaStream, screen?: MediaStream, muted }>
-call.leave();
+await mesh.call(); // camera + mic; or mesh.call(stream) with your own MediaStream
+await mesh.shareScreen(); // adds a "screen" stream alongside the camera
+mesh.getSnapshot().call?.participants; // [{ clientId, userId, camera, screen, audioMuted, videoMuted }]
+mesh.setMuted({ audio: true });
+mesh.leave(); // also cancels a join still waiting on the camera prompt
 ```
 
 - A call is opt-in per peer. Joining sets the `__rtc` presence entry to `{ v: 1, call: true }`.
   Tracks flow only between peers that have both joined, and are added via renegotiation on the
   existing connection.
-- `ctl` carries `{ track: id, kind: "camera" | "screen" }` so the receiver
-  can tell a screen apart from a camera.
+- `ctl` carries `{ t: "stream", id, kind: "camera" | "screen" }` before the tracks are
+  added, so the receiver can tell a screen apart from a camera.
 - Full mesh only. Above ~6 video participants, uplink bandwidth becomes the limit. The doc
   says so and points to an SFU (LiveKit, Cloudflare Calls); building an SFU is out of scope.
 
 ## Bindings
 
 - React: `<PeerMeshProvider iceServers>`, `usePeers()`, `useCall()`; `useEphemeral`
-  accepts `transport`. Svelte and vanilla get the same in a follow-up. htmx is out:
-  no client JS to own a mesh.
+  accepts `transport`. Svelte and vanilla ephemeral bindings accept `transport`; the
+  mesh itself is framework-agnostic (`getSnapshot` / `subscribe`). htmx is out: there
+  is no client JS to own a mesh.
 
 ## Security notes (for the README)
 

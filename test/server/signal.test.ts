@@ -126,6 +126,28 @@ describe("signal", () => {
 		await a.server.close();
 	});
 
+	test("a sender with a room-less subscription cannot reach a client inside a room", async () => {
+		const a = setupInstance("server-a");
+		await join(a, "bob", "acme");
+		// Same query, no room param: the subscription resolves to no room.
+		a.transport.connectHandler!("mallory", new Request("https://sync"));
+		a.transport.messageHandler!("mallory", {
+			type: "hello",
+			protocolVersion: PROTOCOL_VERSION,
+			clientId: "mallory",
+			token: "u-mallory",
+		});
+		await tick();
+		a.transport.messageHandler!("mallory", { type: "sync_declare", table: "posts", params: {} });
+		await tick();
+
+		a.transport.messageHandler!("mallory", { type: "signal", to: "bob", data: { t: "hello" } });
+		await tick();
+
+		expect(signalsFor(a, "bob")).toEqual([]);
+		await a.server.close();
+	});
+
 	test("drops an oversized frame", async () => {
 		const a = setupInstance("server-a");
 		await join(a, "alice", "acme");

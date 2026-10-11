@@ -11,12 +11,22 @@ import { serve } from "bun";
 import { MutationError } from "../../src/core/index.ts";
 import { createSyncServer } from "../../src/server/typed-server.ts";
 import { createBunWsServerTransport } from "../../src/transport/bun-ws.ts";
-import { MAX_NOTES_PER_ROOM, MAX_ROOMS, applyNoteWrite, isRoomId, queries } from "./schema.ts";
+import {
+	MAX_NOTES_PER_ROOM,
+	MAX_ROOMS,
+	ROOM_IDLE_MS,
+	applyNoteWrite,
+	isNoteId,
+	isRoomId,
+	queries,
+} from "./schema.ts";
 import type { Note } from "./schema.ts";
 
 /** roomId → note id → note. Everything is in memory; an idle Machine stops and takes it along. */
 type Db = Map<string, Map<string, Note>>;
 const rooms: Db = new Map();
+/** Last read or write per room, for idle eviction. */
+const lastActive = new Map<string, number>();
 
 const { transport, websocket } = createBunWsServerTransport({
 	maxMessageBytes: 64_000,
@@ -47,10 +57,16 @@ server.rateLimit({ opsPerSecond: 40, opsPerMinute: 1_200 });
 
 server.implement("notes", {
 	room: "huddle/:roomId",
-	query: (ctx, db) => [...(db.get(ctx.params.roomId)?.values() ?? [])],
+	query: (ctx, db) => {
+		if (db.has(ctx.params.roomId)) lastActive.set(ctx.params.roomId, Date.now());
+		return [...(db.get(ctx.params.roomId)?.values() ?? [])];
+	},
 	mutate: async (op, ctx, db) => {
 		const roomId = ctx.params.roomId;
+		// Checked before anything is stored: the id becomes a Map key.
+		if (!isNoteId(op.rowId)) throw new MutationError("mutation_rejected", "invalid note id");
 		let room = db.get(roomId);
+		lastActive.set(roomId, Date.now());
 		if (op.type === "delete") {
 			room?.delete(op.rowId);
 			return;
@@ -71,6 +87,36 @@ server.implement("notes", {
 		if (typeof note === "string") throw new MutationError("mutation_rejected", note);
 		room.set(op.rowId, note);
 	},
+});
+
+// ── Idle rooms ─────────────────────────────────────────────────────────
+
+/**
+ * Clear rooms nobody has touched for ROOM_IDLE_MS. Guest tokens are free to
+ * mint, so without this one visitor could fill MAX_ROOMS and lock everyone out
+ * until the Machine restarts. Deletes go through applyServerOp so a tab still
+ * open on an idle room sees its notes go, rather than diverging.
+ */
+async function evictIdleRooms(): Promise<void> {
+	const cutoff = Date.now() - ROOM_IDLE_MS;
+	for (const [roomId, room] of rooms) {
+		if ((lastActive.get(roomId) ?? 0) >= cutoff) continue;
+		for (const id of Array.from(room.keys())) {
+			await server.applyServerOp(
+				{ type: "delete", table: "notes", rowId: id, payload: null },
+				async () => {
+					room.delete(id);
+				},
+				{ roomKey: `huddle/${roomId}` },
+			);
+		}
+		rooms.delete(roomId);
+		lastActive.delete(roomId);
+	}
+}
+
+server.interval(5 * 60_000, () => {
+	evictIdleRooms().catch((err) => console.error("[huddle] idle eviction failed:", err));
 });
 
 // ── /stats: the server's side of the throttle ──────────────────────────

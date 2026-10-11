@@ -593,15 +593,22 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 		this.ephemeralManager = adapter;
 		if (!adapter.subscribe || this.ephemeralBusReady) return;
 		this.ephemeralBusReady = true;
-		void Promise.resolve(
-			adapter.subscribe((event) => {
-				void this.deliverRemoteEphemeral(event).catch((err) => {
-					console.error("[reflectdb] remote ephemeral delivery failed:", err);
-				});
-			}),
-		).catch((err) => {
-			console.error("[reflectdb] ephemeral bus subscribe failed:", err);
-		});
+		const onEvent = (event: EphemeralBroadcast) => {
+			void this.deliverRemoteEphemeral(event).catch((err) => {
+				console.error("[reflectdb] remote ephemeral delivery failed:", err);
+			});
+		};
+		// A bus that fails to come up at boot (a database blip) would otherwise
+		// leave this instance deaf to its peers for the life of the process.
+		const attempt = (delayMs: number) => {
+			if (this.ephemeralManager !== adapter) return;
+			void Promise.resolve(adapter.subscribe!(onEvent)).catch((err) => {
+				console.error(`[reflectdb] ephemeral bus subscribe failed; retrying in ${delayMs}ms:`, err);
+				const timer = setTimeout(() => attempt(Math.min(delayMs * 2, 30_000)), delayMs);
+				(timer as { unref?: () => void }).unref?.();
+			});
+		};
+		attempt(1_000);
 	}
 
 	/** Drop everything a client published, whatever the adapter costs. */
@@ -1655,7 +1662,9 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 		if (!recipient) return false;
 		const audience = targets.some((target) => {
 			const sub = recipient.subscriptions.get(target.query);
-			return sub !== undefined && (target.room === null || sub.roomKey === target.room);
+			// Exact room match, null included: a sender with a room-less
+			// subscription must not reach a client inside a room it never joined.
+			return sub !== undefined && (sub.roomKey ?? null) === target.room;
 		});
 		if (audience) await this.trySend(to, { type: "signal", from, userId, data });
 		return true;

@@ -226,7 +226,11 @@ export function createPostgresEphemeral(
 				}, pollMs);
 				// A poller must not keep a process (or a test runner) alive.
 				(pollTimer as { unref?: () => void }).unref?.();
-			})();
+			})().catch((err) => {
+				// Not cached: the next ready() (the handler retries) tries again.
+				readyPromise = null;
+				throw err;
+			});
 			return readyPromise;
 		}
 		const listener = config.listener;
@@ -242,7 +246,10 @@ export function createPostgresEphemeral(
 				}
 				deliver(event);
 			});
-		})();
+		})().catch((err) => {
+			readyPromise = null;
+			throw err;
+		});
 		return readyPromise;
 	}
 

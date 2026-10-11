@@ -21,7 +21,7 @@ frames a second.
 
 - **Server** (`server.ts`): Bun plus `createBunWsServerTransport`. Notes live in memory
   (`Map<roomId, Map<id, Note>>`) and are scoped by `server.room("huddle/:roomId")`.
-  Each room holds at most 24 notes and the server at most 500 rooms. Inserts past
+  Each room holds at most 24 notes and the server at most 2,000 rooms; a room nobody has read or written for 30 minutes is cleared, so the cap cannot stay full. Note ids are limited to 64 characters. Inserts past
   either cap are rejected with `MutationError`. Note text is trimmed to 140 characters
   and positions are clamped to the board. The Fly Machine auto-stops when idle, so
   rooms disappear with it. That is by design.

@@ -35,6 +35,7 @@ describe("note writes", () => {
 		expect(applyNoteWrite(existing, "n1", "owl-zzz999", {})).toBe("note belongs to another room");
 		expect(applyNoteWrite(undefined, "n1", "../etc", {})).toBe("invalid room");
 		expect(isRoomId("Fox")).toBe(false);
+		expect(applyNoteWrite(undefined, "x".repeat(65), "fox-abc123", {})).toBe("invalid note id");
 	});
 
 	test("starter notes have fixed ids, so seeding twice writes the same rows", () => {

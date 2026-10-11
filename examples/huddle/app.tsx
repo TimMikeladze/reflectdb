@@ -399,7 +399,13 @@ function testPatternStream(): MediaStream {
 	canvas.height = 240;
 	const ctx = canvas.getContext("2d")!;
 	let t = 0;
+	let stream: MediaStream | null = null;
 	const draw = () => {
+		// leave() stops the track without firing "ended", so the loop checks.
+		if (stream && stream.getVideoTracks().every((track) => track.readyState === "ended")) {
+			clearInterval(timer);
+			return;
+		}
 		t += 1;
 		ctx.fillStyle = "#18181b";
 		ctx.fillRect(0, 0, 320, 240);
@@ -413,9 +419,7 @@ function testPatternStream(): MediaStream {
 		ctx.fillText(me.name, 160, 200);
 	};
 	const timer = setInterval(draw, 33);
-	const stream = canvas.captureStream(30);
-	for (const track of stream.getTracks())
-		track.addEventListener("ended", () => clearInterval(timer));
+	stream = canvas.captureStream(30);
 	return stream;
 }
 
