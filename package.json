@@ -13,8 +13,8 @@
 		"eventual-consistency",
 		"hlc",
 		"htmx",
-		"hypermedia",
 		"hybrid-logical-clock",
+		"hypermedia",
 		"indexeddb",
 		"kysely",
 		"last-write-wins",
@@ -222,6 +222,16 @@
 			"require": {
 				"types": "./dist/cjs/server/ephemeral/redis.d.cts",
 				"default": "./dist/cjs/server/ephemeral/redis.cjs"
+			}
+		},
+		"./server/ephemeral/postgres": {
+			"import": {
+				"types": "./dist/server/ephemeral/postgres.d.ts",
+				"default": "./dist/server/ephemeral/postgres.js"
+			},
+			"require": {
+				"types": "./dist/cjs/server/ephemeral/postgres.d.cts",
+				"default": "./dist/cjs/server/ephemeral/postgres.cjs"
 			}
 		},
 		"./server/storage/object": {

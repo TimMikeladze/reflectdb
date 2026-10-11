@@ -1957,6 +1957,7 @@ they never durably persist, and they have their own adapter.
 |---------|--------|----------|
 | _(none)_ | omit `ephemeral` | In-process store; single node |
 | `createRedisEphemeral({ client, subscriber?, prefix? })` | `reflectdb/server/ephemeral/redis` | Multiple instances behind a load balancer |
+| `createPostgresEphemeral({ client, listener?, bus?, tablePrefix? })` | `reflectdb/server/ephemeral/postgres` | Fleets and serverless (Vercel, Lambda) that already run Postgres and no Redis |
 
 ```ts
 import { createRedisEphemeral } from "reflectdb/server/ephemeral/redis";
@@ -1998,6 +1999,48 @@ Options: `prefix` (default `reflectdb:eph`), `maxEntries` (default `100_000`,
 fleet-wide), `hashTtlSeconds` (default 24h — a safety net so a crashed instance
 can't strand entries forever). Omit `subscriber` to share state without a live
 bus: peers then appear on join and after a sweep, but not as they move.
+
+**Postgres.** State lives in one table (`_reflectdb_eph`); events cross instances over
+LISTEN/NOTIFY. LISTEN needs a dedicated connection, wired in a few lines:
+
+```ts
+import { createPostgresEphemeral } from "reflectdb/server/ephemeral/postgres";
+import pg from "pg";
+
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const listen = new pg.Client({ connectionString: process.env.DATABASE_URL });
+await listen.connect();
+
+const server = createSyncServer({
+  queries,
+  db,
+  transport,
+  ephemeral: {
+    adapter: createPostgresEphemeral({
+      client: pool,
+      listener: {
+        listen: async (channel, onPayload) => {
+          listen.on("notification", (m) => { if (m.channel === channel && m.payload) onPayload(m.payload); });
+          await listen.query(`LISTEN ${channel}`);
+        },
+      },
+    }),
+  },
+});
+```
+
+Behind a transaction-mode pooler (PgBouncer, Supavisor, Neon's pooled endpoint) LISTEN
+does not work — notifications reach whichever client last held the backend. Pass
+`bus: { poll: 250 }` instead: events go to a `_reflectdb_eph_bus` table that each
+subscriber polls (one small `SELECT` per tick, rows trimmed after a minute by the
+cleanup sweep). This is also the mode for serverless, where a process that only answers
+POSTs publishes without ever subscribing. Both buses are at-most-once, like the
+ephemeral protocol itself.
+
+Options: `tablePrefix` (default `_reflectdb_eph`), `channel` (default `reflectdb_eph`),
+`maxEntries` (default `100_000`, fleet-wide), `maxAgeMs` (default 24h — expiry for
+entries sent without a TTL). NOTIFY payloads are capped at 8000 bytes, so `publish`
+refuses a larger event on the notify bus; the polled bus has no such cap.
 
 `ephemeral.maxEntries` on its own tunes the in-process store's ceiling
 (default `10_000`) without swapping the adapter.

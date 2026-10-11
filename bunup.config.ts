@@ -31,6 +31,7 @@ const entry = [
 	"src/client/storage/indexeddb.ts",
 	"src/server/ephemeral/index.ts",
 	"src/server/ephemeral/redis.ts",
+	"src/server/ephemeral/postgres.ts",
 	"src/server/storage/object/index.ts",
 ];
 
