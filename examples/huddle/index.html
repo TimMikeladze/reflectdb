@@ -6,7 +6,7 @@
 		<title>Huddle · reflectdb over WebRTC</title>
 		<meta
 			name="description"
-			content="Sticky notes, live cursors and a video huddle — the high-rate traffic goes peer-to-peer over WebRTC, signaled through reflectdb."
+			content="Sticky notes, live cursors, live ink and reactions — the high-rate traffic goes peer-to-peer over WebRTC, signaled through reflectdb."
 		/>
 		<style>
 			:root {
@@ -315,58 +315,122 @@
 				width: 34px;
 				text-align: right;
 			}
-			.huddle {
-				margin-top: 14px;
-				background: var(--panel);
+			.tools {
+				display: inline-flex;
 				border: 1px solid var(--line);
-				border-radius: 12px;
-				padding: 12px 14px;
-			}
-			.huddle-bar {
-				display: flex;
-				align-items: center;
-				gap: 8px;
-				flex-wrap: wrap;
-			}
-			.spacer {
-				flex: 1;
-			}
-			.error {
-				color: #fda4af;
-				margin: 8px 0 0;
-			}
-			.tiles {
-				display: flex;
-				flex-wrap: wrap;
-				gap: 10px;
-				margin-top: 12px;
-			}
-			.tile {
-				margin: 0;
-				width: 220px;
-			}
-			.tile.wide {
-				width: 360px;
-			}
-			.tile video {
-				width: 100%;
-				aspect-ratio: 4 / 3;
-				background: #000;
 				border-radius: 8px;
-				object-fit: cover;
-				display: block;
+				overflow: hidden;
 			}
-			.tile.wide video {
-				aspect-ratio: 16 / 9;
-				object-fit: contain;
+			.tools button {
+				border: 0;
+				border-radius: 0;
+				padding: 6px 12px;
 			}
-			.tile video.mirrored {
-				transform: scaleX(-1);
+			.tools button.on {
+				background: var(--accent);
+				color: #0b0b0d;
+				font-weight: 600;
 			}
-			.tile figcaption {
-				font-size: 12px;
+			.reactions {
+				display: inline-flex;
+				gap: 2px;
+			}
+			.reactions button {
+				padding: 4px 7px;
+				font-size: 15px;
+				line-height: 1;
+			}
+			.board.draw {
+				cursor: crosshair;
+			}
+			.board.draw .note {
+				cursor: crosshair;
+			}
+			.ink {
+				position: absolute;
+				inset: 0;
+				width: 100%;
+				height: 100%;
+				pointer-events: none;
+				z-index: 6;
+			}
+			.ink polyline {
+				fill: none;
+				stroke-width: 3;
+				stroke-linecap: round;
+				stroke-linejoin: round;
+				vector-effect: non-scaling-stroke;
+			}
+			.ink polyline.live {
+				opacity: 0.75;
+			}
+			.reaction {
+				position: absolute;
+				z-index: 12;
+				font-size: 26px;
+				pointer-events: none;
+				transform: translate(-50%, -50%);
+				animation: rise 1.4s ease-out forwards;
+			}
+			@keyframes rise {
+				0% {
+					opacity: 0;
+					transform: translate(-50%, -30%) scale(0.6);
+				}
+				15% {
+					opacity: 1;
+					transform: translate(-50%, -60%) scale(1.15);
+				}
+				100% {
+					opacity: 0;
+					transform: translate(-50%, -260%) scale(1);
+				}
+			}
+			@media (prefers-reduced-motion: reduce) {
+				.reaction {
+					animation-duration: 0.01s;
+				}
+			}
+			.peers li {
+				flex-wrap: wrap;
+			}
+			.races {
+				flex-basis: 100%;
+				display: grid;
+				gap: 3px;
+				padding: 4px 0 2px 17px;
+			}
+			.race {
+				display: grid;
+				grid-template-columns: 44px 1fr 52px;
+				align-items: center;
+				gap: 6px;
+				font-size: 11px;
 				color: var(--muted);
-				margin-top: 4px;
+			}
+			.race .track {
+				height: 6px;
+				background: var(--bg);
+				border-radius: 3px;
+				overflow: hidden;
+			}
+			.race .fill {
+				display: block;
+				height: 100%;
+				border-radius: 3px;
+				transition: width 0.4s;
+			}
+			.race.direct .fill {
+				background: var(--good);
+			}
+			.race.server .fill {
+				background: var(--warn);
+			}
+			.race b {
+				font-weight: 600;
+				color: var(--fg);
+				text-align: right;
+				font-variant-numeric: tabular-nums;
 			}
 			footer {
 				margin-top: 16px;

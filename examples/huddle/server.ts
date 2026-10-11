@@ -1,10 +1,11 @@
 /**
- * Huddle — sticky notes, live cursors and a video call, with the high-rate
- * traffic going peer-to-peer over WebRTC. See README.md.
+ * Huddle — sticky notes, live cursors, live ink and reactions, with the
+ * high-rate traffic going peer-to-peer over WebRTC. See README.md.
  *
- * The server is an ordinary reflectdb sync server. It never sees a video frame
- * and only a throttled trickle of cursor frames; what it does carry is the
- * WebRTC signaling (offers, answers, ICE candidates) as `signal` messages.
+ * The server is an ordinary reflectdb sync server. It sees only a throttled
+ * trickle of cursor and ink frames, no reactions at all, and the finished
+ * notes and strokes; what it also carries is the WebRTC signaling (offers,
+ * answers, ICE candidates) as `signal` messages.
  */
 
 import { serve } from "bun";
@@ -16,17 +17,23 @@ import type { IceServerProvider } from "../../src/server/types.ts";
 import {
 	MAX_NOTES_PER_ROOM,
 	MAX_ROOMS,
+	MAX_STROKES_PER_ROOM,
 	ROOM_IDLE_MS,
+	STROKE_TTL_MS,
 	applyNoteWrite,
+	applyStrokeWrite,
 	isNoteId,
 	isRoomId,
 	queries,
 } from "./schema.ts";
-import type { Note } from "./schema.ts";
+import type { Note, Stroke } from "./schema.ts";
 
-/** roomId → note id → note. Everything is in memory; an idle Machine stops and takes it along. */
-type Db = Map<string, Map<string, Note>>;
-const rooms: Db = new Map();
+/**
+ * roomId → row id → row, per table. Everything is in memory; an idle Machine
+ * stops and takes it along.
+ */
+type Db = { notes: Map<string, Map<string, Note>>; strokes: Map<string, Map<string, Stroke>> };
+const db: Db = { notes: new Map(), strokes: new Map() };
 /** Last read or write per room, for idle eviction. */
 const lastActive = new Map<string, number>();
 
@@ -37,7 +44,7 @@ const { transport, websocket } = createBunWsServerTransport({
 
 const server = createSyncServer<typeof queries, Db>({
 	queries,
-	db: rooms,
+	db,
 	transport,
 	serverId: "huddle",
 	maxConnectionsPerUser: 8,
@@ -55,7 +62,10 @@ server.room("huddle/:roomId", ({ params }) =>
 	isRoomId(params.roomId) ? { ok: true } : { ok: false, reason: "invalid room" },
 );
 
-server.rateLimit({ opsPerSecond: 40, opsPerMinute: 1_200 });
+// Ephemeral headroom: alone in a room (or with nobody direct yet) every cursor,
+// ink and ping frame goes through the server at full rate, which is more than
+// the default 60/s.
+server.rateLimit({ opsPerSecond: 40, opsPerMinute: 1_200, ephemeralPerSecond: 200 });
 
 // ── TURN ───────────────────────────────────────────────────────────────
 
@@ -82,27 +92,40 @@ const turn = turnFromEnv();
 if (turn) server.iceServers(turn);
 console.log(turn ? "[huddle] TURN configured" : "[huddle] no TURN configured; STUN only");
 
+/** Rooms with anything in them, across both tables: what MAX_ROOMS bounds. */
+function roomCount(): number {
+	return new Set([...db.notes.keys(), ...db.strokes.keys()]).size;
+}
+
+/** The room's map in `table`, created on first write if the server has room for it. */
+function roomFor<T>(table: Map<string, Map<string, T>>, roomId: string): Map<string, T> {
+	let room = table.get(roomId);
+	if (!room) {
+		if (!db.notes.has(roomId) && !db.strokes.has(roomId) && roomCount() >= MAX_ROOMS) {
+			throw new MutationError("mutation_rejected", "the demo is full");
+		}
+		room = new Map();
+		table.set(roomId, room);
+	}
+	return room;
+}
+
 server.implement("notes", {
 	room: "huddle/:roomId",
 	query: (ctx, db) => {
-		if (db.has(ctx.params.roomId)) lastActive.set(ctx.params.roomId, Date.now());
-		return [...(db.get(ctx.params.roomId)?.values() ?? [])];
+		if (db.notes.has(ctx.params.roomId)) lastActive.set(ctx.params.roomId, Date.now());
+		return [...(db.notes.get(ctx.params.roomId)?.values() ?? [])];
 	},
 	mutate: async (op, ctx, db) => {
 		const roomId = ctx.params.roomId;
 		// Checked before anything is stored: the id becomes a Map key.
 		if (!isNoteId(op.rowId)) throw new MutationError("mutation_rejected", "invalid note id");
-		let room = db.get(roomId);
 		lastActive.set(roomId, Date.now());
 		if (op.type === "delete") {
-			room?.delete(op.rowId);
+			db.notes.get(roomId)?.delete(op.rowId);
 			return;
 		}
-		if (!room) {
-			if (db.size >= MAX_ROOMS) throw new MutationError("mutation_rejected", "the demo is full");
-			room = new Map();
-			db.set(roomId, room);
-		}
+		const room = roomFor(db.notes, roomId);
 		const existing = room.get(op.rowId);
 		if (!existing && room.size >= MAX_NOTES_PER_ROOM) {
 			throw new MutationError(
@@ -116,34 +139,85 @@ server.implement("notes", {
 	},
 });
 
-// ── Idle rooms ─────────────────────────────────────────────────────────
+server.implement("strokes", {
+	room: "huddle/:roomId",
+	query: (ctx, db) => [...(db.strokes.get(ctx.params.roomId)?.values() ?? [])],
+	serverSet: { createdAt: () => Date.now() },
+	mutate: async (op, ctx, db) => {
+		const roomId = ctx.params.roomId;
+		if (!isNoteId(op.rowId)) throw new MutationError("mutation_rejected", "invalid stroke id");
+		lastActive.set(roomId, Date.now());
+		if (op.type === "delete") {
+			db.strokes.get(roomId)?.delete(op.rowId);
+			return;
+		}
+		const room = roomFor(db.strokes, roomId);
+		const stroke = applyStrokeWrite(
+			room.get(op.rowId),
+			op.rowId,
+			roomId,
+			(op.payload ?? {}) as Partial<Stroke>,
+			Date.now(),
+		);
+		if (typeof stroke === "string") throw new MutationError("mutation_rejected", stroke);
+		room.set(op.rowId, stroke);
+		// Full: the oldest stroke goes, after this write has committed.
+		if (room.size > MAX_STROKES_PER_ROOM) {
+			const oldest = room.keys().next().value;
+			if (oldest !== undefined) setTimeout(() => void deleteRow("strokes", roomId, oldest), 0);
+		}
+	},
+});
 
 /**
- * Clear rooms nobody has touched for ROOM_IDLE_MS. Guest tokens are free to
- * mint, so without this one visitor could fill MAX_ROOMS and lock everyone out
- * until the Machine restarts. Deletes go through applyServerOp so a tab still
- * open on an idle room sees its notes go, rather than diverging.
+ * Delete through applyServerOp, never straight from the Map: that is what
+ * stamps a clock, logs the op and tells every open tab, so nobody keeps a row
+ * the server no longer has.
  */
-async function evictIdleRooms(): Promise<void> {
-	const cutoff = Date.now() - ROOM_IDLE_MS;
-	for (const [roomId, room] of rooms) {
-		if ((lastActive.get(roomId) ?? 0) >= cutoff) continue;
-		for (const id of Array.from(room.keys())) {
-			await server.applyServerOp(
-				{ type: "delete", table: "notes", rowId: id, payload: null },
-				async () => {
-					room.delete(id);
-				},
-				{ roomKey: `huddle/${roomId}` },
-			);
+async function deleteRow(table: "notes" | "strokes", roomId: string, id: string): Promise<void> {
+	const rows = db[table].get(roomId);
+	if (!rows?.has(id)) return;
+	await server.applyServerOp(
+		{ type: "delete", table, rowId: id, payload: null },
+		async () => {
+			rows.delete(id);
+		},
+		{ roomKey: `huddle/${roomId}` },
+	);
+}
+
+// ── Expiry ─────────────────────────────────────────────────────────────
+
+/**
+ * Clear rooms nobody has touched for ROOM_IDLE_MS, and ink older than
+ * STROKE_TTL_MS. Guest tokens are free to mint, so without the first one
+ * visitor could fill MAX_ROOMS and lock everyone out until the Machine restarts.
+ */
+async function expire(): Promise<void> {
+	const now = Date.now();
+	for (const [roomId, strokes] of db.strokes) {
+		for (const [id, stroke] of strokes) {
+			if (stroke.createdAt < now - STROKE_TTL_MS) await deleteRow("strokes", roomId, id);
 		}
-		rooms.delete(roomId);
+	}
+	const cutoff = now - ROOM_IDLE_MS;
+	for (const roomId of new Set([...db.notes.keys(), ...db.strokes.keys()])) {
+		if ((lastActive.get(roomId) ?? 0) >= cutoff) continue;
+		for (const id of Array.from(db.notes.get(roomId)?.keys() ?? []))
+			await deleteRow("notes", roomId, id);
+		for (const id of Array.from(db.strokes.get(roomId)?.keys() ?? []))
+			await deleteRow("strokes", roomId, id);
+		db.notes.delete(roomId);
+		db.strokes.delete(roomId);
 		lastActive.delete(roomId);
+	}
+	for (const table of [db.notes, db.strokes] as Map<string, Map<string, unknown>>[]) {
+		for (const [roomId, rows] of table) if (rows.size === 0) table.delete(roomId);
 	}
 }
 
-server.interval(5 * 60_000, () => {
-	evictIdleRooms().catch((err) => console.error("[huddle] idle eviction failed:", err));
+server.interval(60_000, () => {
+	expire().catch((err) => console.error("[huddle] expiry failed:", err));
 });
 
 // ── /stats: the server's side of the throttle ──────────────────────────

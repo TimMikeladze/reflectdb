@@ -1,26 +1,29 @@
 # Huddle — reflectdb over WebRTC
 
-A shared board for a small group: sticky notes, live cursors, and a video huddle with
-screen share. Open it in two tabs (or send the link) and watch the stats panel. Your
-cursor moves at full frame rate peer-to-peer, while the server receives about ten
-frames a second.
+A shared board for a small group: sticky notes, live cursors, live ink and reactions.
+Open it in two tabs (or send the link) and watch the side panel. Your cursor moves at
+full frame rate peer-to-peer while the server receives about ten frames a second, and
+each peer's round trip is timed both ways: straight there, and through the server.
 
 **Live:** https://reflectdb-huddle.fly.dev/
 
 ## What it shows
 
-| On screen       | reflectdb feature                                                                                                                  |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Cursors         | `useEphemeral({ key: "cursor" })` under `<PeerMeshProvider>`. Same code as a server-only cursor, routed peer-to-peer.              |
-| Dragging a note | The drag preview is ephemeral and goes peer-to-peer. The drop is an ordinary `update` op through the server.                       |
-| Stats panel     | Frames you sent per second against frames the server saw from you (`/stats`), and each peer's route: direct or through the server. |
-| Huddle          | `useCall()`: camera and mic, or an animated test pattern if you have no camera, plus screen share.                                 |
-| Room link       | `?room=` scopes everything: notes sync with `{ roomId }`, and signaling only reaches peers in the same room.                       |
+| On screen            | reflectdb feature                                                                                                                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cursors              | `useEphemeral({ key: "cursor" })` under `<PeerMeshProvider>`. Same code as a server-only cursor, routed peer-to-peer.                                                                     |
+| Dragging a note      | The drag preview is ephemeral and goes peer-to-peer. The drop is an ordinary `update` op through the server.                                                                              |
+| Live ink (D to draw) | The stroke streams to peers peer-to-peer as overlapping windows of its latest points, so a dropped frame repairs itself. The finished stroke is a synced row. Ink fades after 10 minutes. |
+| Reactions (keys 1–5) | `transport: "p2p"`: never stored, never seen by the server. Peers that are not directly connected do not get them.                                                                        |
+| Latency race         | Every 2 s each tab pings its peers twice, once peer-to-peer and once through the server, and shows both round trips side by side.                                                         |
+| Meter                | Cursor frames you sent per second against those the server saw (`/stats`), and each peer's route: direct, relayed or through the server.                                                  |
+| Room link            | `?room=` scopes everything: notes and ink sync with `{ roomId }`, and signaling only reaches peers in the same room.                                                                      |
 
 ## Design
 
-- **Server** (`server.ts`): Bun plus `createBunWsServerTransport`. Notes live in memory
-  (`Map<roomId, Map<id, Note>>`) and are scoped by `server.room("huddle/:roomId")`.
+- **Server** (`server.ts`): Bun plus `createBunWsServerTransport`. Notes and strokes live
+  in memory, per room, scoped by `server.room("huddle/:roomId")`. A room keeps at most
+  120 strokes (the oldest is evicted) of at most 400 points each.
   Each room holds at most 24 notes and the server at most 2,000 rooms; a room nobody has read or written for 30 minutes is cleared, so the cap cannot stay full. Note ids are limited to 64 characters. Inserts past
   either cap are rejected with `MutationError`. Note text is trimmed to 140 characters
   and positions are clamped to the board. The Fly Machine auto-stops when idle, so
@@ -33,8 +36,8 @@ frames a second.
   gets three starter notes with deterministic ids, so two tabs loading at once don't
   duplicate them.
 - **Privacy**: a room is private by default. A visit without `?room=` creates a random
-  one, and the camera starts only when you press "join". There is no shared lobby
-  where strangers could see each other's cameras.
+  one with 64 bits of randomness, and there is no shared lobby. Colors, names, points
+  and reactions from peers are validated before they reach the page.
 
 ## TURN (optional)
 

@@ -454,16 +454,16 @@ export function renderApp(root: HTMLElement): void {
           <div class="demo-status"><span></span>deployed on fly.io · WebRTC · wakes on demand</div>
           <h4>Huddle: peer-to-peer over WebRTC</h4>
           <p>
-            Sticky notes, live cursors and a video call. Wrap the app in
-            <code>&lt;PeerMeshProvider&gt;</code> and the same <code>useEphemeral</code> cursor
-            code goes browser-to-browser at full frame rate, with reflectdb's own connection
-            carrying the signaling.
+            Sticky notes, live cursors, live ink and reactions. Wrap the app in
+            <code>&lt;PeerMeshProvider&gt;</code> and the same <code>useEphemeral</code> code goes
+            browser-to-browser at full frame rate, with reflectdb's own connection carrying the
+            signaling.
           </p>
           <ul class="demo-facts">
-            <li>a meter shows frames sent against frames the server saw</li>
-            <li>drag previews go peer-to-peer; the drop is a synced op</li>
-            <li>camera, mic and screen share, with no media server</li>
-            <li>a private room per link, and the camera starts only on join</li>
+            <li>a latency race: each peer, direct against through the server</li>
+            <li>ink streams peer-to-peer as you draw; the stroke is a synced op</li>
+            <li>reactions go peer-to-peer only and are never stored</li>
+            <li>a private room per link; TURN relay-only mode when configured</li>
           </ul>
           <div class="demo-actions">
             <a class="btn primary" href="${HUDDLE_DEMO}">open a room →</a>
@@ -503,10 +503,10 @@ export function renderApp(root: HTMLElement): void {
             <div class="huddle-meter">
               <span><strong>60</strong><small>frames/s sent</small></span>
               <span><strong>10</strong><small>reached the server</small></span>
-              <span><strong>2</strong><small>in the call</small></span>
+              <span><strong>4 ms</strong><small>direct round trip</small></span>
             </div>
           </div>
-          <div class="demo-preview-footer"><span>cursors and drags skip the server</span><strong>open →</strong></div>
+          <div class="demo-preview-footer"><span>cursors, ink and reactions skip the server</span><strong>open →</strong></div>
         </a>
       </article>
 
