@@ -5,7 +5,7 @@ import type {
 	InferWritableRow,
 	RequiresParams,
 } from "../core/schema.ts";
-import type { SyncClientState } from "../client/sync-client.ts";
+import type { EphemeralTransport, SyncClientState } from "../client/sync-client.ts";
 import type { SyncClient } from "../client/sync-client.ts";
 import { createSync } from "./sync.ts";
 import type { VanillaSyncConfig, EphemeralBinding } from "./sync.ts";
@@ -76,6 +76,7 @@ export interface TypedVanillaSync<TQueries extends SyncQueryMap> {
 		key: string;
 		userId: string;
 		ttlMs?: number;
+		transport?: EphemeralTransport;
 	}): EphemeralBinding<T>;
 
 	// Windowed queries

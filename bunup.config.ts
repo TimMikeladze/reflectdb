@@ -18,6 +18,7 @@ process.env.NODE_ENV ??= "production";
 const entry = [
 	"src/core/index.ts",
 	"src/client/index.ts",
+	"src/client/webrtc.ts",
 	"src/server/index.ts",
 	"src/server/drizzle.ts",
 	"src/transport/ws.ts",
@@ -25,6 +26,7 @@ const entry = [
 	"src/transport/sse.ts",
 	"src/transport/polling.ts",
 	"src/react/index.ts",
+	"src/react/webrtc.tsx",
 	"src/svelte/index.ts",
 	"src/vanilla/index.ts",
 	"src/htmx/index.ts",

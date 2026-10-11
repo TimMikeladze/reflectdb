@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import type { EphemeralTransport } from "../client/sync-client.ts";
 import type { ReactNode } from "react";
 import type {
 	SyncQueryMap,
@@ -76,7 +77,7 @@ export interface SyncReactHooks<TQueries extends SyncQueryMap> {
 	useSyncStatus: () => SyncClientState;
 	useRow: <K extends keyof TQueries & string>(table: K, rowId: string) => InferRow<TQueries, K> | null;
 	usePendingCount: () => number;
-	useEphemeral: <T extends object>(config: { key: string; userId: string; ttlMs?: number }) => { events: Record<string, T>; broadcast: (data: T) => Promise<void> };
+	useEphemeral: <T extends object>(config: { key: string; userId: string; ttlMs?: number; transport?: EphemeralTransport }) => { events: Record<string, T>; broadcast: (data: T) => Promise<void> };
 	usePresence: <K extends PresenceKeys<TQueries> & string>(
 		...args: RequiresParams<TQueries, K> extends true
 			? [name: K, params: InferParams<TQueries, K>]

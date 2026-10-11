@@ -42,6 +42,13 @@ export interface EphemeralBroadcast {
 	data: Record<string, unknown>;
 	ttlMs?: number;
 	targets: EphemeralTarget[];
+	/**
+	 * `"signal"` marks a peer-to-peer signaling message: delivered to `to` only,
+	 * and only if that client matches one of `targets`. Absent for ordinary
+	 * ephemeral events. Adapters carry the whole event, so they need no change.
+	 */
+	kind?: "signal";
+	to?: string;
 }
 
 /**

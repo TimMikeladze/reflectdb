@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>reflectdb · webrtc</title>
+		<style>
+			* {
+				box-sizing: border-box;
+				margin: 0;
+				padding: 0;
+			}
+			body {
+				font-family: system-ui, sans-serif;
+				background: #0a0a0a;
+				color: #ededed;
+				padding: 16px;
+			}
+			h1 {
+				font-size: 1.1rem;
+				margin-bottom: 12px;
+			}
+			.row {
+				display: flex;
+				gap: 16px;
+				flex-wrap: wrap;
+			}
+			.panel {
+				border: 1px solid #262626;
+				border-radius: 8px;
+				padding: 12px;
+				margin-bottom: 12px;
+			}
+			.pad {
+				position: relative;
+				width: 480px;
+				max-width: 100%;
+				height: 300px;
+				background: #141414;
+				border-radius: 8px;
+				cursor: crosshair;
+				overflow: hidden;
+			}
+			.cursor {
+				position: absolute;
+				width: 12px;
+				height: 12px;
+				border-radius: 50%;
+				transform: translate(-50%, -50%);
+				pointer-events: none;
+			}
+			table {
+				border-collapse: collapse;
+				font-size: 13px;
+			}
+			td,
+			th {
+				padding: 2px 8px;
+				text-align: left;
+				border-bottom: 1px solid #222;
+			}
+			button {
+				background: #262626;
+				color: #ededed;
+				border: 1px solid #333;
+				border-radius: 6px;
+				padding: 6px 10px;
+				margin-right: 6px;
+				cursor: pointer;
+			}
+			video {
+				width: 200px;
+				height: 150px;
+				background: #000;
+				border-radius: 6px;
+			}
+			.tile {
+				font-size: 12px;
+			}
+			code {
+				font-size: 12px;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="root"></div>
+		<script type="module" src="./webrtc.tsx"></script>
+	</body>
+</html>

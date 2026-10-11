@@ -8,7 +8,7 @@ import {
 	useSyncExternalStore,
 } from "react";
 import { pushSafely } from "../client/sync-client.ts";
-import type { SyncClient, SyncClientState } from "../client/sync-client.ts";
+import type { EphemeralTransport, SyncClient, SyncClientState } from "../client/sync-client.ts";
 import type { EphemeralEvent } from "../core/types.ts";
 import { SyncContext } from "./context.tsx";
 import { useSyncClient } from "./context.tsx";
@@ -227,6 +227,8 @@ export function useEphemeral<T extends object>(config: {
 	key: string;
 	userId: string;
 	ttlMs?: number;
+	/** Route for each frame: peer-to-peer when a mesh is attached. Default: `"auto"`. */
+	transport?: EphemeralTransport;
 }): {
 	events: Record<string, T>;
 	broadcast: (data: T) => Promise<void>;
@@ -275,8 +277,9 @@ export function useEphemeral<T extends object>(config: {
 				userId: config.userId,
 				data: data as unknown as Record<string, unknown>,
 				ttlMs: config.ttlMs,
+				transport: config.transport,
 			}),
-		[client, config.key, config.userId, config.ttlMs],
+		[client, config.key, config.userId, config.ttlMs, config.transport],
 	);
 
 	return { events, broadcast };

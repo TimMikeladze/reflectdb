@@ -156,12 +156,29 @@ export interface EphemeralMessage {
 	ttlMs?: number;
 }
 
+/**
+ * A message for exactly one peer — WebRTC signaling (offer, answer, ICE
+ * candidates). Never stored, never broadcast; delivered only when sender and
+ * recipient share a room.
+ */
+export interface SignalMessage {
+	type: "signal";
+	to: string;
+	data: Record<string, unknown>;
+}
+
 // Server → Client
 
 export interface HelloAckMessage {
 	type: "hello_ack";
 	protocolVersion: number;
 	serverId: string;
+	/**
+	 * The id the server knows this connection by — what peers see as its
+	 * `clientId` in ephemeral events and signals. The transport chooses it, so
+	 * it can differ from the client's configured `clientId`.
+	 */
+	clientId?: string;
 }
 
 export interface HelloRejectMessage {
@@ -263,6 +280,14 @@ export interface EphemeralEvent {
 	ttlMs?: number;
 }
 
+/** A `signal` from a peer. `from` and `userId` come from the sender's session. */
+export interface SignalEvent {
+	type: "signal";
+	from: string;
+	userId: string;
+	data: Record<string, unknown>;
+}
+
 // Union of all messages
 
 export type ClientMessage =
@@ -274,7 +299,8 @@ export type ClientMessage =
 	| LoadMoreMessage
 	| UnsyncMessage
 	| AuthMessage
-	| EphemeralMessage;
+	| EphemeralMessage
+	| SignalMessage;
 
 export type ServerMessage =
 	| HelloAckMessage
@@ -290,6 +316,7 @@ export type ServerMessage =
 	| DisconnectMessage
 	| ReauthMessage
 	| EphemeralEvent
+	| SignalEvent
 	| CountChangedMessage;
 
 export type SyncMessage = ClientMessage | ServerMessage;

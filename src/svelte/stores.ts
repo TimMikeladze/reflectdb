@@ -1,5 +1,5 @@
 import { pushSafely, SyncClient } from "../client/sync-client.ts";
-import type { SyncClientState } from "../client/sync-client.ts";
+import type { EphemeralTransport, SyncClientState } from "../client/sync-client.ts";
 import type { ClientStorageAdapter } from "../client/storage/types.ts";
 import type { ClientTransport, ClientMessage, ServerMessage, EphemeralEvent } from "../core/types.ts";
 
@@ -113,6 +113,7 @@ export interface SyncStore {
 		key: string;
 		userId: string;
 		ttlMs?: number;
+		transport?: EphemeralTransport;
 	}): {
 		events: Readable<Record<string, T>>;
 		broadcast: (data: T) => Promise<void>;
@@ -282,6 +283,7 @@ export function createSyncStore(config: SyncStoreConfig): SyncStore {
 		key: string;
 		userId: string;
 		ttlMs?: number;
+		transport?: EphemeralTransport;
 	}): {
 		events: Readable<Record<string, T>>;
 		broadcast: (data: T) => Promise<void>;
@@ -335,6 +337,7 @@ export function createSyncStore(config: SyncStoreConfig): SyncStore {
 				userId: cfg.userId,
 				data: data as unknown as Record<string, unknown>,
 				ttlMs: cfg.ttlMs,
+				transport: cfg.transport,
 			});
 
 		const destroy = () => {

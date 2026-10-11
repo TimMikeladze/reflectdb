@@ -5,6 +5,7 @@ import type {
 	ServerMessage,
 	OpType,
 	EphemeralEvent,
+	SignalEvent,
 } from "../core/types.ts";
 import { PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS, MAX_BATCH_SIZE } from "../core/types.ts";
 import { receiveHlc, unpackHlc } from "../core/hlc.ts";
@@ -47,6 +48,39 @@ export type SyncClientState =
 	| "bootstrapping"
 	| "synced";
 
+/** Where an ephemeral frame goes. See `docs/webrtc.md`. */
+export type EphemeralTransport = "auto" | "server" | "p2p";
+
+export interface SendEphemeralParams {
+	key: string;
+	userId: string;
+	data: Record<string, unknown>;
+	ttlMs?: number;
+	/**
+	 * Route for this frame. Without a peer mesh attached every frame goes
+	 * through the server and `"p2p"` sends nothing. Default: `"auto"`.
+	 */
+	transport?: EphemeralTransport;
+}
+
+/**
+ * Takes over `sendEphemeral` — the seam a WebRTC peer mesh plugs into.
+ * `viaServer` is the normal server path, for the router to call when it wants it.
+ */
+export interface EphemeralRouter {
+	send(
+		params: SendEphemeralParams,
+		viaServer: (params: SendEphemeralParams) => Promise<void>,
+	): Promise<void>;
+}
+
+/**
+ * Reserved field carrying a frame's sequence number. A frame can arrive twice —
+ * peer-to-peer and through the server — and out of order on an unreliable data
+ * channel, so receivers keep only the newest per (client, key).
+ */
+export const EPHEMERAL_SEQ_FIELD = "__seq";
+
 export interface SyncOptions {
 	window?: number;
 }
@@ -59,6 +93,8 @@ export class SyncClient {
 	private state: SyncClientState = "disconnected";
 	/** Version agreed on in hello_ack. Null until first successful handshake. */
 	private negotiatedProtocolVersion: number | null = null;
+	/** The server's id for this connection, from hello_ack. */
+	private connectionId: string | null = null;
 	private syncedTables = new Set<string>();
 	private serverHlc: string | null = null;
 	private listeners = new Set<() => void>();
@@ -69,6 +105,10 @@ export class SyncClient {
 	private connectReject: ((err: Error) => void) | null = null;
 	private connectInFlight: Promise<void> | null = null;
 	private ephemeralListeners = new Map<string, Set<(event: EphemeralEvent) => void>>();
+	private signalListeners = new Set<(event: SignalEvent) => void>();
+	private ephemeralRouter: EphemeralRouter | null = null;
+	/** Highest `__seq` delivered per `clientId\0key`. */
+	private ephemeralSeen = new Map<string, number>();
 	private totalCounts = new Map<string, number>();
 	private syncOptions = new Map<string, SyncOptions>();
 	private bootstrapScheduled = false;
@@ -91,6 +131,8 @@ export class SyncClient {
 	 * until the connection happens to drop. Resends are idempotent server-side.
 	 */
 	private static readonly IN_FLIGHT_TTL_MS = 30_000;
+	/** Ceiling on `ephemeralSeen` entries (peer × key). */
+	private static readonly MAX_SEEN_SLOTS = 10_000;
 	/** Tail of the serialized push chain; also the coalescing slot. */
 	private pushChain: Promise<void> = Promise.resolve();
 	private pushPending: Promise<void> | null = null;
@@ -488,16 +530,72 @@ export class SyncClient {
 
 	// ── Ephemeral Messages ──────────────────────────────────────────────
 
-	async sendEphemeral(params: {
-		key: string;
-		userId: string;
-		data: Record<string, unknown>;
-		ttlMs?: number;
-	}): Promise<void> {
-		await this.transport.send({
-			type: "ephemeral",
-			...params,
-		});
+	async sendEphemeral(params: SendEphemeralParams): Promise<void> {
+		if (this.ephemeralRouter) {
+			await this.ephemeralRouter.send(params, this.sendEphemeralViaServer);
+			return;
+		}
+		if (params.transport === "p2p") return;
+		await this.sendEphemeralViaServer(params);
+	}
+
+	private sendEphemeralViaServer = async (params: SendEphemeralParams): Promise<void> => {
+		const { transport: _route, ...frame } = params;
+		await this.transport.send({ type: "ephemeral", ...frame });
+	};
+
+	/** Route `sendEphemeral` through a peer mesh. Pass null to detach. */
+	setEphemeralRouter(router: EphemeralRouter | null): void {
+		this.ephemeralRouter = router;
+	}
+
+	/**
+	 * Deliver an ephemeral event to local listeners, as if it came from the
+	 * server. A peer mesh calls this for frames that arrive peer-to-peer.
+	 * Frames carrying `__seq` older than one already delivered are dropped.
+	 */
+	receiveEphemeral(event: EphemeralEvent): void {
+		let data = event.data;
+		const seq = data[EPHEMERAL_SEQ_FIELD];
+		if (typeof seq === "number") {
+			const slot = `${event.clientId}\0${event.key}`;
+			if (seq <= (this.ephemeralSeen.get(slot) ?? -Infinity)) return;
+			// One entry per peer and key; peers come and go over a long session.
+			// Dropping the oldest only risks one stale frame for that slot.
+			if (this.ephemeralSeen.size >= SyncClient.MAX_SEEN_SLOTS && !this.ephemeralSeen.has(slot)) {
+				const oldest = this.ephemeralSeen.keys().next().value;
+				if (oldest !== undefined) this.ephemeralSeen.delete(oldest);
+			}
+			this.ephemeralSeen.delete(slot);
+			this.ephemeralSeen.set(slot, seq);
+			const { [EPHEMERAL_SEQ_FIELD]: _seq, ...rest } = data;
+			data = rest;
+		}
+		const listeners = this.ephemeralListeners.get(event.key);
+		if (!listeners) return;
+		const delivered = data === event.data ? event : { ...event, data };
+		for (const listener of listeners) listener(delivered);
+	}
+
+	/**
+	 * This client's peer identity — the `clientId` other clients see on its
+	 * ephemeral events and signals. That is the server's id for the
+	 * connection once connected, which may differ from the configured one.
+	 */
+	getClientId(): string {
+		return this.connectionId ?? this.config.clientId;
+	}
+
+	/** Send a signaling frame to one peer that shares a room with this client. */
+	async sendSignal(to: string, data: Record<string, unknown>): Promise<void> {
+		await this.transport.send({ type: "signal", to, data });
+	}
+
+	subscribeSignal(listener: (event: SignalEvent) => void): () => void {
+		this.signalListeners.add(listener);
+		return () => {
+			this.signalListeners.delete(listener);
+		};
 	}
 
 	subscribeEphemeral(key: string, listener: (event: EphemeralEvent) => void): () => void {
@@ -658,6 +756,7 @@ export class SyncClient {
 					break;
 				}
 				this.negotiatedProtocolVersion = message.protocolVersion;
+				this.connectionId = message.clientId ?? null;
 				this.state = "connected";
 				this.connectResolve?.();
 				this.connectResolve = null;
@@ -815,14 +914,11 @@ export class SyncClient {
 				break;
 
 			case "ephemeral":
-				{
-					const listeners = this.ephemeralListeners.get(message.key);
-					if (listeners) {
-						for (const listener of listeners) {
-							listener(message);
-						}
-					}
-				}
+				this.receiveEphemeral(message);
+				break;
+
+			case "signal":
+				for (const listener of this.signalListeners) listener(message);
 				break;
 		}
 	}

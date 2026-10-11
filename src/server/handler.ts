@@ -6,6 +6,7 @@ import type {
 	ServerTransport,
 	EphemeralEvent,
 	EphemeralMessage,
+	SignalMessage,
 	LoadMoreMessage,
 } from "../core/types.ts";
 // OpType re-export to keep handler types aligned with SyncServer.applyServerOp signature.
@@ -307,6 +308,8 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 	private eagerBuffer = new EagerBuffer();
 	private replay: ReplayDetector;
 	private static readonly MAX_EPHEMERAL_TTL_MS = 24 * 60 * 60 * 1000;
+	/** Ceiling on one signal's `data`, serialized. SDP with trickle ICE is well under. */
+	private static readonly MAX_SIGNAL_BYTES = 4_096;
 	// Short-lived cache so ops re-auth doesn't hit the auth callback on every
 	// push (hot path under high write rate). 5s is short enough to honor token
 	// revocation within a normal request lifecycle but long enough to absorb
@@ -714,6 +717,9 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 			case "ephemeral":
 				await this.handleEphemeral(clientId, message as EphemeralMessage);
 				break;
+			case "signal":
+				await this.handleSignal(clientId, message as SignalMessage);
+				break;
 		}
 	}
 
@@ -790,6 +796,7 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 			type: "hello_ack",
 			protocolVersion: negotiated,
 			serverId: this.serverId,
+			clientId,
 		});
 	}
 
@@ -1577,6 +1584,84 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 	}
 
 	/**
+	 * Route a peer-to-peer signaling message (WebRTC offer/answer/candidate).
+	 *
+	 * Unlike `ephemeral` it has one recipient and is never stored — an SDP offer
+	 * must not surface in a joiner's presence snapshot. The sender's audience is
+	 * the same `targets` an ephemeral event would use, so a client can only
+	 * signal a peer it could already see; anything else is dropped silently,
+	 * which keeps `signal` from probing whether a clientId exists.
+	 */
+	private async handleSignal(clientId: string, message: SignalMessage): Promise<void> {
+		const session = this.sessions.get(clientId);
+		if (!session) return;
+		if (message.to === clientId) return;
+
+		// Same bucket as ephemeral: signaling is a few dozen frames per peer
+		// connection, and must not open a second amplification channel.
+		if (!this.allowEphemeral(clientId)) {
+			this.emit({ type: "ephemeral_rate_limited", clientId });
+			return;
+		}
+		// Trickle ICE keeps every frame small; the cap also stays under the
+		// Postgres NOTIFY limit once the bus envelope is added.
+		if (
+			new TextEncoder().encode(JSON.stringify(message.data)).byteLength >
+			MessageHandler.MAX_SIGNAL_BYTES
+		)
+			return;
+
+		const targets: EphemeralTarget[] = [];
+		for (const [queryName, sub] of session.subscriptions) {
+			targets.push({ query: queryName, room: sub.roomKey ?? null });
+		}
+		if (targets.length === 0) return;
+
+		const userId = session.auth!.userId;
+		if (await this.deliverSignal(message.to, clientId, userId, message.data, targets)) return;
+
+		// Not on this instance — another one may hold the recipient's socket.
+		if (this.ephemeralManager.publish) {
+			try {
+				await this.ephemeralManager.publish({
+					serverId: this.serverId,
+					kind: "signal",
+					to: message.to,
+					key: "",
+					clientId,
+					userId,
+					data: message.data,
+					targets,
+				});
+			} catch (err) {
+				console.error("[reflectdb] signal publish failed:", err);
+			}
+		}
+	}
+
+	/**
+	 * Hand a signal to `to` if its socket lives here and it shares one of the
+	 * sender's targets. Returns true when the recipient is local, delivered or
+	 * not, so the caller knows not to go looking on the bus.
+	 */
+	private async deliverSignal(
+		to: string,
+		from: string,
+		userId: string,
+		data: Record<string, unknown>,
+		targets: EphemeralTarget[],
+	): Promise<boolean> {
+		const recipient = this.sessions.get(to);
+		if (!recipient) return false;
+		const audience = targets.some((target) => {
+			const sub = recipient.subscriptions.get(target.query);
+			return sub !== undefined && (target.room === null || sub.roomKey === target.room);
+		});
+		if (audience) await this.trySend(to, { type: "signal", from, userId, data });
+		return true;
+	}
+
+	/**
 	 * Deliver one ephemeral event to this instance's sockets.
 	 *
 	 * `exclude` is the sender when the event originated here, and undefined
@@ -1609,6 +1694,18 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 	private async deliverRemoteEphemeral(remote: EphemeralBroadcast): Promise<void> {
 		// Buses that echo to the publisher would otherwise double-send.
 		if (remote.serverId === this.serverId) return;
+		if (remote.kind === "signal") {
+			if (remote.to) {
+				await this.deliverSignal(
+					remote.to,
+					remote.clientId,
+					remote.userId,
+					remote.data,
+					remote.targets,
+				);
+			}
+			return;
+		}
 		await this.fanOutEphemeral(
 			{
 				type: "ephemeral",

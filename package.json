@@ -94,6 +94,16 @@
 				"default": "./dist/cjs/client/index.cjs"
 			}
 		},
+		"./client/webrtc": {
+			"import": {
+				"types": "./dist/client/webrtc.d.ts",
+				"default": "./dist/client/webrtc.js"
+			},
+			"require": {
+				"types": "./dist/cjs/client/webrtc.d.cts",
+				"default": "./dist/cjs/client/webrtc.cjs"
+			}
+		},
 		"./server": {
 			"import": {
 				"types": "./dist/server/index.d.ts",
@@ -162,6 +172,16 @@
 			"require": {
 				"types": "./dist/cjs/react/index.d.cts",
 				"default": "./dist/cjs/react/index.cjs"
+			}
+		},
+		"./react/webrtc": {
+			"import": {
+				"types": "./dist/react/webrtc.d.ts",
+				"default": "./dist/react/webrtc.js"
+			},
+			"require": {
+				"types": "./dist/cjs/react/webrtc.d.cts",
+				"default": "./dist/cjs/react/webrtc.cjs"
 			}
 		},
 		"./svelte": {
@@ -276,6 +296,7 @@
 		"drizzle-orm": "^0.45.1",
 		"fake-indexeddb": "^6.2.5",
 		"kysely": "^0.28.12",
+		"node-datachannel": "^0.33.4",
 		"oxfmt": "^0.36.0",
 		"oxlint": "^1.51.0",
 		"pg": "^8.23.0",

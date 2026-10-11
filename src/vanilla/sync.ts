@@ -1,5 +1,5 @@
 import { pushSafely, SyncClient } from "../client/sync-client.ts";
-import type { SyncClientState } from "../client/sync-client.ts";
+import type { EphemeralTransport, SyncClientState } from "../client/sync-client.ts";
 import type { ClientStorageAdapter } from "../client/storage/types.ts";
 import type { ClientTransport, ClientMessage, ServerMessage, EphemeralEvent } from "../core/types.ts";
 
@@ -129,6 +129,7 @@ export interface VanillaSync {
 		key: string;
 		userId: string;
 		ttlMs?: number;
+		transport?: EphemeralTransport;
 	}): EphemeralBinding<T>;
 
 	// Windowed queries
@@ -292,6 +293,7 @@ export function createSync(config: VanillaSyncConfig): VanillaSync {
 		key: string
 		userId: string
 		ttlMs?: number
+		transport?: EphemeralTransport
 	}): EphemeralBinding<T> {
 		let events: Record<string, T> = {};
 		const timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -336,6 +338,7 @@ export function createSync(config: VanillaSyncConfig): VanillaSync {
 					userId: ephConfig.userId,
 					data: data as unknown as Record<string, unknown>,
 					ttlMs: ephConfig.ttlMs,
+					transport: ephConfig.transport,
 				});
 			},
 			onChange(cb: (evts: Record<string, T>) => void): () => void {

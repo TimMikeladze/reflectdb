@@ -10,6 +10,7 @@ const VALID_CLIENT_MESSAGE_TYPES = new Set([
 	"unsync",
 	"auth",
 	"ephemeral",
+	"signal",
 ]);
 
 const VALID_OP_TYPES = new Set(["insert", "update", "delete"]);
@@ -110,6 +111,13 @@ export function validateClientMessage(
 			if (typeof m.key !== "string") return { valid: false, error: "ephemeral: missing key" };
 			if (typeof m.data !== "object" || m.data == null)
 				return { valid: false, error: "ephemeral: missing data" };
+			break;
+
+		case "signal":
+			if (typeof m.to !== "string" || m.to.length === 0)
+				return { valid: false, error: "signal: missing to" };
+			if (typeof m.data !== "object" || m.data == null)
+				return { valid: false, error: "signal: missing data" };
 			break;
 
 		case "bootstrap":

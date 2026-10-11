@@ -5,7 +5,7 @@ import type {
 	InferWritableRow,
 	RequiresParams,
 } from "../core/schema.ts";
-import type { SyncClientState } from "../client/sync-client.ts";
+import type { EphemeralTransport, SyncClientState } from "../client/sync-client.ts";
 import type { SyncClient } from "../client/sync-client.ts";
 import type { Readable, SyncStoreConfig } from "./stores.ts";
 import { createSyncStore } from "./stores.ts";
@@ -56,6 +56,7 @@ export interface TypedSyncStore<TQueries extends SyncQueryMap> {
 		key: string;
 		userId: string;
 		ttlMs?: number;
+		transport?: EphemeralTransport;
 	}): {
 		events: Readable<Record<string, T>>;
 		broadcast: (data: T) => Promise<void>;

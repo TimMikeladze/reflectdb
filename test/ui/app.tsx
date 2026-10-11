@@ -205,7 +205,7 @@ function Game() {
 
 export function App() {
 	return (
-		<SyncProvider url="ws://localhost:3001/sync" token="test-token" tables={["cells"]}>
+		<SyncProvider url={`ws://${location.host}/sync`} token="test-token" tables={["cells"]}>
 			<Game />
 		</SyncProvider>
 	);

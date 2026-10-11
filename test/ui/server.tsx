@@ -8,6 +8,7 @@ import { createServer } from "../../src/server/server.ts";
 import { createSqliteStorage } from "../../src/server/storage/sqlite.ts";
 import type { ClientMessage, ServerMessage, ServerTransport } from "../../src/core/types.ts";
 import index from "./index.html";
+import webrtcPage from "./webrtc.html";
 
 // ── Schema ──────────────────────────────────────────────────────────────────
 
@@ -129,41 +130,63 @@ syncServer.rateLimit({ opsPerSecond: 200 });
 
 const clientIds = new Map<unknown, string>();
 
-serve({
-	port: 3001,
-	routes: {
-		"/*": index,
-	},
-	websocket: {
-		open(ws) {
-			const clientId = `ws-${Math.random().toString(36).slice(2, 8)}`;
-			clientIds.set(ws, clientId);
-			wsTransport.handleUpgrade(ws as unknown as BunWs, clientId);
-		},
-		message(ws, data) {
-			const clientId = clientIds.get(ws);
-			if (clientId && wsTransport._messageHandler) {
-				const message = JSON.parse(data as string) as ClientMessage;
-				wsTransport._messageHandler(clientId, message);
-			}
-		},
-		close(ws) {
-			const clientId = clientIds.get(ws);
-			if (clientId) {
-				wsTransport._disconnectHandler?.(clientId);
-				clientIds.delete(ws);
-			}
-		},
-	},
-	fetch(req, server) {
-		const url = new URL(req.url);
-		if (url.pathname === "/sync") {
-			if (server.upgrade(req)) return;
-			return new Response("WebSocket upgrade failed", { status: 400 });
-		}
-		return new Response("Not found", { status: 404 });
-	},
-});
+/** Cursor frames each client has sent through the server — read by /webrtc. */
+const cursorCounts = new Map<string, number>();
 
-console.log("reflectdb tic-tac-toe running at http://localhost:3001");
-console.log("WebSocket endpoint: ws://localhost:3001/sync");
+const websocket = {
+	open(ws: unknown) {
+		const clientId = `ws-${Math.random().toString(36).slice(2, 8)}`;
+		clientIds.set(ws, clientId);
+		wsTransport.handleUpgrade(ws as BunWs, clientId);
+	},
+	message(ws: unknown, data: string | Buffer) {
+		const clientId = clientIds.get(ws);
+		if (clientId && wsTransport._messageHandler) {
+			const message = JSON.parse(String(data)) as ClientMessage;
+			if (message.type === "ephemeral" && message.key === "cursor") {
+				cursorCounts.set(clientId, (cursorCounts.get(clientId) ?? 0) + 1);
+			}
+			wsTransport._messageHandler(clientId, message);
+		}
+	},
+	close(ws: unknown) {
+		const clientId = clientIds.get(ws);
+		if (clientId) {
+			wsTransport._disconnectHandler?.(clientId);
+			clientIds.delete(ws);
+		}
+	},
+};
+
+/** Start on PORT (default 3001), moving up when it is taken rather than failing. */
+function listen(port: number, attempts = 20): ReturnType<typeof serve> {
+	try {
+		return serve({
+			port,
+			routes: {
+				"/webrtc": webrtcPage,
+				"/stats": () => Response.json(Object.fromEntries(cursorCounts)),
+				"/*": index,
+			},
+			websocket,
+			fetch(req, server) {
+				const url = new URL(req.url);
+				if (url.pathname === "/sync") {
+					if (server.upgrade(req)) return;
+					return new Response("WebSocket upgrade failed", { status: 400 });
+				}
+				return new Response("Not found", { status: 404 });
+			},
+		});
+	} catch (err) {
+		if (attempts > 0 && (err as { code?: string }).code === "EADDRINUSE") {
+			return listen(port + 1, attempts - 1);
+		}
+		throw err;
+	}
+}
+
+const server = listen(Number(process.env.PORT ?? 3001));
+console.log(`reflectdb tic-tac-toe running at http://localhost:${server.port}`);
+console.log(`WebRTC mesh check: http://localhost:${server.port}/webrtc`);
+console.log(`WebSocket endpoint: ws://localhost:${server.port}/sync`);

@@ -38,6 +38,7 @@ You bring your own types and your own database. reflectdb handles the protocol, 
   - [Validating client payloads](#validating-client-payloads)
   - [Ephemeral messages (cursors, presence, typing)](#ephemeral-messages-cursors-presence-typing)
   - [Typed presence](#typed-presence)
+  - [Peer-to-peer (WebRTC)](#peer-to-peer-webrtc)
   - [Per-user query results](#per-user-query-results)
   - [Read-only views](#read-only-views)
   - [Server-driven game loops](#server-driven-game-loops)
@@ -142,6 +143,7 @@ Optional bits (use what you want):
 - **Framework bindings** — React hooks, Svelte stores, a vanilla-JS helper, and htmx 4 attribute bindings; the core client works anywhere
 - **Ephemeral channels** — presence, cursors, typing indicators that never touch the op log, with a room snapshot on join and a pluggable adapter (Redis included) so presence spans a fleet
 - **Typed presence** — `presence()` in the schema, `usePresence()` in the component, key derived for you
+- **Peer-to-peer (WebRTC)** — cursors, drags and game ticks go browser-to-browser at full rate, plus calls and screen share, all signaled over the sync connection you already have
 - **Read-only views** — `view()` entries that recompute on their dependencies and reject writes at both levels
 - **Windowed sync** — paginate large tables with `loadMore` + `useTotalCount`
 - **Server-side toolkit** — `tx` (transaction + auto-notify), `lock` / `tryLock`, and self-disposing `interval` / `timeout`
@@ -605,6 +607,87 @@ Details worth knowing:
   `sync.sendEphemeral` / `sync.onEphemeral` (or the store's `ephemeral()`) with your own
   key there. `derivePresenceKey(name, params)` is exported from `reflectdb/react` if you
   want to interoperate with the same channel by hand.
+
+### Peer-to-peer (WebRTC)
+
+Wrap the app in `PeerMeshProvider` and ephemeral frames go browser-to-browser over
+WebRTC data channels. Nothing else changes: `useEphemeral` and `usePresence` keep their
+API, and the reflectdb connection you already have carries the signaling.
+
+```tsx
+import { SyncProvider, useEphemeral } from "reflectdb/react";
+import { PeerMeshProvider, useCall, usePeers } from "reflectdb/react/webrtc";
+
+<SyncProvider url={url} token={token} tables={["posts"]}>
+	<PeerMeshProvider iceServers={[{ urls: "stun:stun.l.google.com:19302" }, myTurn]}>
+		<Board />
+	</PeerMeshProvider>
+</SyncProvider>;
+
+// Cursors: unchanged code, now peer-to-peer at full rate.
+const { events, broadcast } = useEphemeral({ key: "cursor", userId, ttlMs: 5000 });
+
+// Game ticks that should never touch the server:
+useEphemeral({ key: "tick", userId, transport: "p2p" });
+```
+
+Each frame's route is set by `transport`:
+
+| `transport`        | Peers connected directly  | Everyone else      | Server / joiner snapshot                                                     |
+| ------------------ | ------------------------- | ------------------ | ---------------------------------------------------------------------------- |
+| `"auto"` (default) | every frame, peer-to-peer | through the server | throttled to one frame per 100 ms per key, always ending on the latest value |
+| `"server"`         | through the server        | through the server | every frame                                                                  |
+| `"p2p"`            | every frame, peer-to-peer | nothing            | nothing                                                                      |
+
+`auto` throttles the server copy only while every peer the mesh knows of is connected
+directly. Until then (or if a connection fails) every frame also goes through the
+server, so attaching a mesh never costs a peer an update. Clients without a mesh — an
+htmx page, an older client — see the throttled rate once all the peers that have
+meshes are connected directly. A frame can arrive twice, once peer-to-peer and once
+through the server, and out of order on the unreliable channel. Receivers keep only
+the newest frame per peer and key.
+
+**Calls and screen share.** `useCall()` joins the room's call:
+
+```tsx
+const { call, join, leave, shareScreen, stopScreen, setMuted } = useCall();
+
+await join(); // camera + mic; or join(stream) with your own MediaStream
+await shareScreen(); // adds a "screen" stream alongside the camera
+call?.participants.map((p) => <Tile key={p.clientId} camera={p.camera} screen={p.screen} />);
+```
+
+Media flows only between peers that have both joined. `usePeers()` lists every peer
+with its state (`connecting`, `connected`, `server-only`) and whether it is in the call.
+
+How it works, and its limits:
+
+- **Discovery is presence.** Each mesh keeps a `__rtc` ephemeral entry alive. The
+  peer with the lower id opens the connection. Signaling uses a `signal` message that
+  goes to exactly one peer, is never stored, and is delivered only when sender and
+  recipient share a room. That holds across a fleet too: the Redis and Postgres
+  ephemeral adapters carry `signal` messages unchanged.
+- **Full mesh, capped.** `maxPeers` (default 8) sets how many direct connections a
+  client keeps. Peers past the cap stay on the server path. Video calls hit uplink limits
+  above about 6 participants; past that, use an SFU (LiveKit, Cloudflare Calls).
+- **Presence cost.** Each mesh re-announces every `announceIntervalMs` (default 30 s),
+  and every announce fans out to the whole room. Raise the interval for very large
+  rooms. New peers are found immediately whatever the interval.
+- **Failure.** A peer that does not connect within `connectTimeoutMs` (default 15 s)
+  stays on the server path and is retried after a minute.
+- **NAT.** The default `iceServers` is Google's public STUN server, which connects most
+  peers. Users behind strict NATs need a TURN server, and you supply its credentials.
+- **Privacy.** Peers in a room learn each other's IP addresses through ICE. Set
+  `relayOnly` (it requires TURN) to route everything through the relay and hide them.
+- **Trust.** A peer-to-peer frame bypasses the server's rate limit and validation.
+  The `clientId` and `userId` on it come from the server-relayed signaling, not from
+  the frame, but treat the frame's `data` as untrusted input.
+- **Durable data never goes peer-to-peer.** Ops, permissions and ordering stay on the
+  server. Use WebRTC only for the in-between states: the drag preview, not the drop.
+
+Without React, call `createPeerMesh(client, config)` from `reflectdb/client/webrtc`. It
+returns `getSnapshot()` and `subscribe()` for any store, plus `call`, `shareScreen`,
+`setMuted`, `leave` and `destroy`. The design is in [`docs/webrtc.md`](./docs/webrtc.md).
 
 ### Per-user query results
 
@@ -1547,7 +1630,7 @@ import {
 | `useSyncStatus()` | `"hydrating" \| "disconnected" \| "connecting" \| "connected" \| "bootstrapping" \| "synced"` |
 | `useRow(table, id)` | Single row or `null` |
 | `usePendingCount()` | Total unsynced op count |
-| `useEphemeral({ key, userId, ttlMs? })` | `{ events, broadcast }` |
+| `useEphemeral({ key, userId, ttlMs?, transport? })` | `{ events, broadcast }` — `transport` routes frames when a peer mesh is attached ([Peer-to-peer](#peer-to-peer-webrtc)) |
 | `useTotalCount(table)` | Server-side count (requires `countHints: true`) |
 | `useLoadMore(table)` | Function to expand the sync window |
 
@@ -2150,6 +2233,19 @@ bun install
 | `bun run format` | Format with `oxfmt` |
 | `bun run verify:exports` | Check the `exports` map against `dist/`, and type-check the emitted declarations without ambient Bun/React globals (run after `build`) |
 | `bun run verify:node` | Install the packed tarball into a throwaway Node project and check every subpath imports, requires, and type-checks there under both export conditions (run after `build`; needs `node` + `npm`) |
+
+### Checking WebRTC in a browser
+
+`bun test` runs the peer mesh over real data channels (node-datachannel). Media needs a
+browser:
+
+```bash
+bun run test:ui          # starts on PORT (default 3001), or the next free port
+```
+
+Open `/webrtc` in two tabs. Move over the pad in one tab and the other tab counts every
+frame it receives, while the stats line shows how few went through the server. "join
+call" and "share" use canvas test patterns, so no camera prompt appears.
 
 ### Landing page and social cards
 

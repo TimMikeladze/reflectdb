@@ -1,4 +1,4 @@
-import type { ClientOp, ClientTransport, EphemeralEvent } from "../core/types.ts";
+import type { ClientOp, ClientTransport, EphemeralEvent, SignalEvent } from "../core/types.ts";
 import type {
 	SyncQueryMap,
 	InferRow,
@@ -7,7 +7,12 @@ import type {
 	RequiresParams,
 } from "../core/schema.ts";
 import { SyncClient } from "./sync-client.ts";
-import type { SyncClientState, SyncOptions } from "./sync-client.ts";
+import type {
+	EphemeralRouter,
+	EphemeralTransport,
+	SyncClientState,
+	SyncOptions,
+} from "./sync-client.ts";
 import type { ClientStorageAdapter } from "./storage/types.ts";
 
 // ── Config ──────────────────────────────────────────────────────────────
@@ -89,8 +94,16 @@ export interface TypedSyncClient<TQueries extends SyncQueryMap> {
 		userId: string;
 		data: Record<string, unknown>;
 		ttlMs?: number;
+		transport?: EphemeralTransport;
 	}): Promise<void>;
 	subscribeEphemeral(key: string, listener: (event: EphemeralEvent) => void): () => void;
+	receiveEphemeral(event: EphemeralEvent): void;
+	setEphemeralRouter(router: EphemeralRouter | null): void;
+
+	// ── Peer signaling (WebRTC) ─────────────────────────────────────────
+	getClientId(): string;
+	sendSignal(to: string, data: Record<string, unknown>): Promise<void>;
+	subscribeSignal(listener: (event: SignalEvent) => void): () => void;
 }
 
 // ── Factory ─────────────────────────────────────────────────────────────
