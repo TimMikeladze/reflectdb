@@ -606,7 +606,7 @@ function useLatencyRace(): Record<string, Rtt> {
 	return rtt;
 }
 
-function RaceBars({ rtt }: { rtt: Rtt | undefined }) {
+function RaceBars({ rtt, relayed }: { rtt: Rtt | undefined; relayed: boolean }) {
 	const max = Math.max(rtt?.direct ?? 0, rtt?.server ?? 0, 1);
 	const bar = (label: string, ms: number | undefined, kind: string) => (
 		<div className={`race ${kind}`}>
@@ -622,7 +622,8 @@ function RaceBars({ rtt }: { rtt: Rtt | undefined }) {
 	);
 	return (
 		<div className="races">
-			{bar("direct", rtt?.direct, "direct")}
+			{/* Peer-to-peer through a TURN relay is still not the sync server. */}
+			{bar(relayed ? "relay" : "direct", rtt?.direct, "direct")}
 			{bar("server", rtt?.server, "server")}
 		</div>
 	);
@@ -726,7 +727,7 @@ function Panel({ sentPerSecond }: { sentPerSecond: number }) {
 								{routeLabel(peer)}
 							</span>
 							<span className="rate">{received[peer.clientId] ?? 0}/s</span>
-							<RaceBars rtt={race[peer.clientId]} />
+							<RaceBars rtt={race[peer.clientId]} relayed={peer.relayed === true} />
 						</li>
 					);
 				})}
