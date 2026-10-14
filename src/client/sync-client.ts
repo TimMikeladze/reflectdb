@@ -39,6 +39,12 @@ export interface SyncClientConfig {
 	 * `sync()` on it. Default: false.
 	 */
 	hydrateAllTables?: boolean;
+	/**
+	 * Send writes without an explicit `push()`: every `insert`/`update`/
+	 * `delete`/`batch` schedules one push per microtask, so a burst of writes
+	 * in one task goes out together. Default: true. Set false to batch by hand.
+	 */
+	autoPush?: boolean;
 }
 
 export type SyncClientState =
@@ -97,6 +103,9 @@ export class SyncClient {
 	/** The server's id for this connection, from hello_ack. */
 	private connectionId: string | null = null;
 	private syncedTables = new Set<string>();
+	/** Tables `sync()`ed before the handshake finished; declared on `hello_ack`. */
+	private queuedDeclares = new Set<string>();
+	private autoPushQueued = false;
 	private serverHlc: string | null = null;
 	private listeners = new Set<() => void>();
 	private version = 0;
@@ -311,6 +320,13 @@ export class SyncClient {
 		}
 		this.persistSyncSubscriptions();
 
+		// The server drops a connection whose first message isn't `hello`, so a
+		// declare made before the handshake waits for `hello_ack`.
+		if (!this.isOpen()) {
+			this.queuedDeclares.add(table);
+			return;
+		}
+
 		await this.transport.send({
 			type: "sync_declare",
 			table,
@@ -379,11 +395,28 @@ export class SyncClient {
 
 	// ── Data Operations ─────────────────────────────────────────────────
 
+	private isOpen(): boolean {
+		return this.state === "connected" || this.state === "bootstrapping" || this.state === "synced";
+	}
+
+	/** See `SyncClientConfig.autoPush`. Offline writes wait for the reconnect's push. */
+	private autoPush(): void {
+		if (this.config.autoPush === false || this.autoPushQueued) return;
+		this.autoPushQueued = true;
+		queueMicrotask(() => {
+			this.autoPushQueued = false;
+			if (!this.closed && this.isOpen()) {
+				this.push().catch((err) => console.error("[reflectdb] auto push failed:", err));
+			}
+		});
+	}
+
 	insert(table: string, rowId: string, payload: Record<string, unknown>): ClientOp {
 		const op = this.opCreator.insert(table, rowId, payload);
 		this.store.addPendingOp(op);
 		this.store.applyOptimistic(op);
 		this.notify([table]);
+		this.autoPush();
 		return op;
 	}
 
@@ -392,6 +425,7 @@ export class SyncClient {
 		this.store.addPendingOp(op);
 		this.store.applyOptimistic(op);
 		this.notify([table]);
+		this.autoPush();
 		return op;
 	}
 
@@ -400,6 +434,7 @@ export class SyncClient {
 		this.store.addPendingOp(op);
 		this.store.applyOptimistic(op);
 		this.notify([table]);
+		this.autoPush();
 		return op;
 	}
 
@@ -417,6 +452,7 @@ export class SyncClient {
 			this.store.applyOptimistic(op);
 		}
 		this.notify([...new Set(batchOps.map((o) => o.table))]);
+		this.autoPush();
 		return batchOps;
 	}
 
@@ -772,6 +808,30 @@ export class SyncClient {
 		this.notify();
 	}
 
+	/**
+	 * Declare the tables `sync()`ed before the handshake. On a first connection
+	 * that nobody has bootstrapped yet, bootstrap too, so `sync()` then
+	 * `connect()` works without the caller sequencing it.
+	 */
+	private flushQueuedDeclares(): void {
+		if (!this.queuedDeclares.size) return;
+		const tables = [...this.queuedDeclares];
+		this.queuedDeclares.clear();
+		void (async () => {
+			for (const table of tables) {
+				if (!this.syncedTables.has(table)) continue;
+				const options = this.syncOptions.get(table);
+				await this.transport.send({
+					type: "sync_declare",
+					table,
+					params: this.syncParams.get(table),
+					window: options?.window,
+				});
+			}
+			if (!this.serverHlc && !this.closed) this.scheduleBootstrap();
+		})().catch((err) => console.error("[reflectdb] queued sync_declare failed:", err));
+	}
+
 	// ── Message Handling ────────────────────────────────────────────────
 
 	private handleMessage(message: ServerMessage): void {
@@ -796,6 +856,7 @@ export class SyncClient {
 				this.connectResolve = null;
 				this.connectReject = null;
 				this.notify();
+				this.flushQueuedDeclares();
 				break;
 
 			case "hello_reject":

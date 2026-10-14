@@ -385,26 +385,27 @@ export class ClientStore {
 	}
 
 	// Revert a rejected op — server state wins (design decision #3).
-	// If the server echoed a row, use it. Otherwise fall back to the pre-op
-	// snapshot so an optimistic insert reverts to no-row instead of leaving
-	// a tombstone (which previously shadowed future reads via includeDeleted).
+	//
+	// Rebuilds the row instead of restoring this op's own `preState`: with
+	// several ops on one row in flight, a later op's snapshot already contains
+	// the rejected one, and restoring it would bring the rejected write back.
+	// Base is the row as the server last told this client (`serverRow`), else
+	// the snapshot taken before the earliest op still tracked for the row. The
+	// remaining pending ops are replayed on top, and each one's `preState` is
+	// refreshed so a later revert of it rebuilds from the right place.
 	revertOp(opId: string, serverRow: Record<string, unknown> | null | undefined): void {
 		const pending = this.pendingOps.find((p) => p.op.id === opId);
 		if (!pending) return;
 
 		const { table, rowId } = pending.op;
+		const chain = this.pendingOps.filter((p) => p.op.table === table && p.op.rowId === rowId);
+		const first = chain[0]!;
+		const existing = this.getRow(table, rowId);
 
 		if (serverRow != null) {
-			const existing = this.getRow(table, rowId);
 			this.setRow(table, rowId, serverRow, existing?.colClocks ?? {}, existing?.serverHlc ?? null);
-		} else if (pending.preState) {
-			this.setRow(
-				table,
-				rowId,
-				pending.preState.data,
-				pending.preState.colClocks,
-				pending.preState.serverHlc,
-			);
+		} else if (first.preState) {
+			this.setRow(table, rowId, first.preState.data, first.preState.colClocks, first.preState.serverHlc);
 		} else {
 			// No prior row and server didn't send one — drop entirely.
 			const tableMap = this.rows.get(table);
@@ -413,6 +414,16 @@ export class ClientStore {
 				this.enqueue(() => this.storage!.deleteRow(table, rowId));
 			}
 		}
+
+		const rest = chain.filter((p) => p !== pending);
+		for (const p of rest) {
+			const row = this.getRow(table, rowId);
+			p.preState = row
+				? { data: row.data, colClocks: { ...row.colClocks }, serverHlc: row.serverHlc }
+				: null;
+			if (p.status === "pending") this.applyOptimistic(p.op);
+		}
+		if (rest.length) this.enqueue(() => this.storage!.updatePendingOps(rest));
 
 		this.pendingOps = this.pendingOps.filter((p) => p.op.id !== opId);
 		this.enqueue(() => this.storage!.removePendingOps([opId]));

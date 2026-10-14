@@ -152,6 +152,12 @@ export class BroadcastEngine<TAuth extends AuthContext = AuthContext> {
 		}
 	}
 
+	/** The row `clientId` was last sent for it by `queryName`, or null. */
+	clientViewRow(queryName: string, clientId: string, rowId: string): Record<string, unknown> | null {
+		const row = this.deps.resultCache.get(clientId, queryName).get(rowId);
+		return row ? { ...row } : null;
+	}
+
 	/**
 	 * Record the columns the writer just applied optimistically, in every query
 	 * that depends on `tableName`.

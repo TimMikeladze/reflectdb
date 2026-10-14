@@ -73,6 +73,13 @@ export interface OpProcessorDeps<TAuth extends AuthContext> {
 		rowId: string,
 		columns: Record<string, unknown>,
 	): void;
+	/**
+	 * The row as this client was last sent it by `queryName`, or null if it
+	 * holds none. A reject carries this as `serverRow`, never the stored row:
+	 * the stored row is the last raw payload any client wrote, which a query
+	 * that filters or redacts per user may never have shown this client.
+	 */
+	clientViewRow(queryName: string, clientId: string, rowId: string): Record<string, unknown> | null;
 }
 
 /**
@@ -114,6 +121,11 @@ function writerHeldColumns(
  * straight to subscribers — they still run every enforcement gate.
  */
 export class OpProcessor<TAuth extends AuthContext = AuthContext> {
+	/** What a rejected op's client should roll back to: the row as it was last told it. */
+	private toldRow(op: { table: string; rowId: string }, clientId: string): Record<string, unknown> | null {
+		return this.deps.clientViewRow(op.table, clientId, op.rowId);
+	}
+
 	private deps: OpProcessorDeps<TAuth>;
 
 	constructor(deps: OpProcessorDeps<TAuth>) {
@@ -603,7 +615,7 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 					)({ type: "write", table: op.table, op: resolvedOp }, mutCtx, this.db);
 				} catch (err) {
 					const reason = reasonFromError(err);
-					return { accepted: false, reason, serverRow: existing.row };
+					return { accepted: false, reason, serverRow: this.toldRow(op, session.clientId) };
 				}
 			}
 
@@ -622,7 +634,7 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 					)(resolvedOp, mutCtx, this.db);
 				} catch (err) {
 					const reason = reasonFromError(err);
-					return { accepted: false, reason, serverRow: existing.row };
+					return { accepted: false, reason, serverRow: this.toldRow(op, session.clientId) };
 				}
 			}
 
@@ -688,7 +700,7 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 		return {
 			accepted: result.accepted,
 			reason: result.reason,
-			serverRow: result.accepted ? undefined : existing.row,
+			serverRow: result.accepted ? undefined : this.toldRow(op, session.clientId),
 		};
 	}
 }

@@ -227,8 +227,8 @@ const todos = new Map<string, Todo>();
 const transport = createWsServerTransport();
 
 // `db` is whatever holds your data — an ORM handle, a pool, or a plain Map.
-// It is not optional: reflectdb only runs a `query` callback when it has a
-// `db` to pass it, so leaving it out makes every snapshot come back empty.
+// It's handed to every `query` and `mutate`. Optional: a query that closes over
+// in-memory state runs without one.
 const server = createSyncServer({ queries, db: todos, transport, serverId: "s1" });
 
 server.auth(async (req) => {
@@ -503,6 +503,10 @@ Two details that matter:
 - **Throw `MutationError`, not a plain `Error`.** Only `MutationError` carries an
   `ErrorReason` through to the client's `onError`; anything else is reported as
   `server_error`.
+- **A refused write rolls back to what that client was shown.** The reject's
+  `serverRow` is the row from the client's own last query result (null if it
+  never received one), not reflectdb's stored row. That keeps a query that hides
+  columns per user from leaking them through a refusal.
 - **Write the parsed value, not `op.payload`.** Writing the raw payload after
   validating it defeats `.strict()` and any coercion the schema applied — and it
   also feeds unvalidated data into reflectdb's mirror, which is what conflict
@@ -1628,6 +1632,8 @@ import { createIndexedDBStorage } from "reflectdb/client/storage/indexeddb";
 | Windowing | `loadMore(name, count)`, `getTotalCount(name)` |
 | Ephemeral | `sendEphemeral({ key, userId, data, ttlMs? })`, `subscribeEphemeral(key, listener)` |
 
+Writes go out on their own: each `insert`/`update`/`delete`/`batch` schedules one `push()` per microtask (`autoPush: false` to push by hand). `sync()` can be called before `connect()`; the declares wait for the handshake, and a first connection bootstraps once they're sent.
+
 State machine: `hydrating → disconnected → connecting → connected → bootstrapping → synced`. Reconnects with exponential backoff (capped by `maxReconnectDelayMs`, default 30s).
 
 ### `reflectdb/react`
@@ -1940,6 +1946,7 @@ createSyncClient({
   autoSync: true,                  // auto-sync param-less queries on connect
   maxReconnectDelayMs: 30_000,
   hydrateAllTables: false,         // true = read every stored row at boot
+  autoPush: true,                  // false = writes wait for an explicit push()
   onSync: () => { … },             // fires once bootstrap completes
   onError: (e) => { … },
   onReauth: async () => newToken,  // called after "auth_revoked"

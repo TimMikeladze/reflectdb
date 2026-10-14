@@ -413,6 +413,8 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 				this.broadcast.forgetWriterRow(table, clientId, rowId),
 			recordWriterColumns: (table, clientId, rowId, columns) =>
 				this.broadcast.recordWriterColumns(table, clientId, rowId, columns),
+			clientViewRow: (query, clientId, rowId) =>
+				this.broadcast.clientViewRow(query, clientId, rowId),
 		});
 
 		this.transport.onConnect((clientId) => {
@@ -956,17 +958,15 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 	): Promise<Record<string, unknown>[]> {
 		let rows: Record<string, unknown>[];
 
-		if (this.db) {
-			const sub = session.subscriptions.get(queryReg.name);
-			const ctx = { auth: session.auth!, params: sub?.params ?? {}, limit };
-
-			const query = queryReg.callback(ctx, this.db);
-			// Drizzle queries are thenable — await them to execute
-			const result = await (query as Promise<unknown>);
-			rows = Array.isArray(result) ? (result as Record<string, unknown>[]) : [];
-		} else {
-			rows = [];
-		}
+		// Runs with or without a `db`: a query over in-memory state (a Map, a
+		// game engine) has no handle to receive, and skipping it would make
+		// every snapshot silently empty.
+		const sub = session.subscriptions.get(queryReg.name);
+		const ctx = { auth: session.auth!, params: sub?.params ?? {}, limit };
+		const query = queryReg.callback(ctx, this.db);
+		// Drizzle queries are thenable — await them to execute
+		const result = await (query as Promise<unknown>);
+		rows = Array.isArray(result) ? (result as Record<string, unknown>[]) : [];
 
 		if (limit != null && rows.length > limit) {
 			return rows.slice(0, limit);
@@ -984,7 +984,7 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 		session: ClientSession<TAuth>,
 	): Promise<number | null> {
 		const countFn = queryReg.options.count;
-		if (!countFn || !this.db) return null;
+		if (!countFn) return null;
 		const sub = session.subscriptions.get(queryReg.name);
 		const ctx = { auth: session.auth!, params: sub?.params ?? {} };
 		return await countFn(ctx, this.db);
