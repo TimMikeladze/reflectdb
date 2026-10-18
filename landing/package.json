@@ -1,16 +1,17 @@
 {
-  "name": "reflectdb-landing",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "og": "bun run scripts/og.ts"
-  },
-  "devDependencies": {
-    "typescript": "^5.9.3",
-    "vite": "^5.4.10"
-  }
+	"name": "reflectdb-landing",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "bun run docs:llms && vite",
+		"build": "bun run docs:llms && tsc --noEmit && vite build",
+		"docs:llms": "bun run scripts/llms.ts",
+		"preview": "vite preview",
+		"og": "bun run scripts/og.ts"
+	},
+	"devDependencies": {
+		"typescript": "^5.9.3",
+		"vite": "^5.4.10"
+	}
 }

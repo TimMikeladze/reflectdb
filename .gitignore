@@ -22,7 +22,10 @@ yarn-error.log*
 *.db*
 test-query.*
 .playwright-mcp/
-.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/reflectdb
 .gstack/
 CLAUDE.md
 AGENTS.md

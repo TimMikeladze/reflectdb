@@ -252,6 +252,10 @@ export function renderApp(root: HTMLElement): void {
           <code><span class="prompt">$</span>bun add reflectdb</code>
           <button class="copy-btn" data-copy="bun add reflectdb">copy</button>
         </div>
+        <p class="note">
+          Build with the <a href="${REPO}#claude-code-and-codex-skill">shared agent skill</a>:
+          <code>/reflectdb</code> in Claude Code, <code>$reflectdb</code> in Codex.
+        </p>
       </div>
 
       <!-- The same four demos the page ends up arguing for, at a glance. Each
@@ -1014,7 +1018,10 @@ export function renderApp(root: HTMLElement): void {
         <a href="${REPO}">github</a> ·
         <a href="${REPO}#api-reference">api reference</a> ·
         <a href="${REPO}#recipes">recipes</a> ·
-        <a href="${REPO}/issues">issues</a>
+        <a href="${REPO}/issues">issues</a> ·
+        <a href="${REPO}#claude-code-and-codex-skill">agent skill</a> ·
+        <a href="/llms.txt">llms.txt</a> ·
+        <a href="/llms-full.txt">full docs</a>
       </div>
     </footer>
     </div>

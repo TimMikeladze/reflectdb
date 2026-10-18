@@ -57,7 +57,9 @@
 	},
 	"funding": "https://github.com/sponsors/TimMikeladze",
 	"files": [
-		"dist"
+		"dist",
+		"skills",
+		"llms.txt"
 	],
 	"type": "module",
 	"main": "./dist/cjs/core/index.cjs",

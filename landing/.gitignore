@@ -4,3 +4,9 @@ dist
 *.local
 .vercel
 .env*
+/public/llms.txt
+/public/llm.txt
+/public/llms-full.txt
+/public/index.md
+/public/docs/
+/public/skills/

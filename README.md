@@ -28,6 +28,7 @@ You bring your own types and your own database. reflectdb handles the protocol, 
 - [Features](#features)
 - [Use Cases](#use-cases)
 - [Installation](#installation)
+- [Claude Code and Codex skill](#claude-code-and-codex-skill)
 - [Quick Start](#quick-start)
 - [Recipes](#recipes)
   - [WebSocket sync with SQLite + Drizzle](#websocket-sync-with-sqlite--drizzle)
@@ -187,6 +188,45 @@ bun add htmx.org@^4   # for reflectdb/htmx
 bun add drizzle-orm   # if you want auto-inferred row types from Drizzle tables
 # Svelte + vanilla have no peer deps
 ```
+
+## Claude Code and Codex skill
+
+The [ReflectDB skill](./skills/reflectdb/SKILL.md) covers setup, typed queries,
+storage, transports, presence, and sync debugging. One skill folder works in
+both tools. This checkout links it into each tool's project skill directory.
+
+```text
+# Claude Code
+/reflectdb add offline todo sync to this app
+
+# Codex
+$reflectdb add offline todo sync to this app
+```
+
+Claude Code exposes skills as slash commands; Codex uses `$reflectdb` or the
+`/skills` picker. See the [Claude Code skill docs](https://code.claude.com/docs/en/skills)
+and [Codex skill docs](https://developers.openai.com/codex/skills/).
+
+To use the skill in another project, copy `skills/reflectdb` from this checkout
+into `.agents/skills/reflectdb`, then link Claude Code to that same folder:
+
+```bash
+mkdir -p .agents/skills .claude/skills
+cp -R /path/to/reflectdb/skills/reflectdb .agents/skills/reflectdb
+ln -s ../../.agents/skills/reflectdb .claude/skills/reflectdb
+```
+
+Run these commands in the destination project when neither `reflectdb` skill
+path already exists. The npm package also includes `skills/reflectdb`, so an
+installed copy is available at `node_modules/reflectdb/skills/reflectdb`.
+Restart the tool if it has not discovered the new skill.
+
+The landing page serves an [LLM documentation index](https://reflectdb.dev/llms.txt)
+and [complete text documentation](https://reflectdb.dev/llms-full.txt), including
+this skill. `/llm.txt` is an alias for `/llms.txt`. The landing dev and build
+commands regenerate the files from the repository README, feature docs, and
+skill. Edit [llms.txt](./llms.txt) to change the index, or run
+`bun run --cwd landing docs:llms` to regenerate the public files directly.
 
 ## Quick Start
 

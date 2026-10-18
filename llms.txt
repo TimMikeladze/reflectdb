@@ -1,0 +1,30 @@
+# ReflectDB
+
+> ReflectDB is a TypeScript sync engine that keeps application database rows in sync with browser clients. It supports optimistic writes, offline replay, typed queries, and WebSocket, SSE, or polling transports.
+
+Install with `npm install reflectdb` or `bun add reflectdb`. The package ships
+ESM and CommonJS. React and Drizzle integrations use optional peer dependencies;
+the client also works with Svelte, vanilla JavaScript, and htmx.
+
+The application database and the server sync op log are separate stores.
+Configure both for durable data. Browser persistence uses IndexedDB. Shared
+TypeScript row types do not validate incoming payloads at runtime. Match API
+examples to the installed package version.
+
+## Documentation
+
+- [README and API reference](https://reflectdb.dev/docs/README.md): Installation, quick start, recipes, configuration, auth, conflict resolution, and all public entry points.
+- [Object storage](https://reflectdb.dev/docs/object-storage.md): Use an S3-compatible bucket for durable sync state, including serverless operation and concurrency.
+- [WebRTC](https://reflectdb.dev/docs/webrtc.md): Peer meshes, ephemeral data, calls, screen sharing, and TURN configuration.
+- [Complete documentation](https://reflectdb.dev/llms-full.txt): README, feature docs, and agent skill in one text file, generated from the current source tree.
+
+## Agent skill
+
+- [ReflectDB skill](https://reflectdb.dev/skills/reflectdb/SKILL.md): Shared instructions for Claude Code (`/reflectdb`) and Codex (`$reflectdb` or `/skills`).
+- [Typed integration example](https://reflectdb.dev/skills/reflectdb/references/integration.md): Schema, server mutations, React client, offline storage, and authentication constraints.
+
+## Optional
+
+- [Landing page as Markdown](https://reflectdb.dev/index.md): Project overview and documentation entry points.
+- [Source and examples](https://github.com/TimMikeladze/reflectdb): Collaborative whiteboard, Tetris, kanban, htmx todos, and WebRTC examples.
+- [npm package](https://www.npmjs.com/package/reflectdb): Published versions and package metadata.
