@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.14-alpine AS build
+FROM oven/bun:1.4.4-alpine AS build
 
 WORKDIR /app
 COPY package.json bun.lock ./
@@ -11,7 +11,7 @@ RUN bun build examples/tetris/render.tsx \
 	--minify \
 	--outfile=examples/tetris/app.js
 
-FROM oven/bun:1.3.14-alpine
+FROM oven/bun:1.4.4-alpine
 
 WORKDIR /app
 COPY --from=build /app/src ./src

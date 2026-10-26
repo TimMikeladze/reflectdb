@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.14-alpine AS build
+FROM oven/bun:1.4.4-alpine AS build
 
 WORKDIR /app
 COPY package.json bun.lock ./
@@ -19,7 +19,7 @@ RUN bun build examples/whiteboard/render.tsx \
 	--minify \
 	--outfile=examples/whiteboard/app.js
 
-FROM oven/bun:1.3.14-alpine
+FROM oven/bun:1.4.4-alpine
 
 WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules

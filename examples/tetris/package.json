@@ -7,6 +7,6 @@
 		"dev": "bun --hot --watch server.tsx"
 	},
 	"devDependencies": {
-		"@types/bun": "^1.2.23"
+		"@types/bun": "^1.4.4"
 	}
 }

@@ -1,6 +1,6 @@
 # Bun 1.4 — the example's bun.lock is lockfileVersion 2, which 1.3.x cannot
 # parse. Keep this in step with whatever wrote examples/htmx-todos/bun.lock.
-FROM oven/bun:1.4.0-alpine AS build
+FROM oven/bun:1.4.4-alpine AS build
 
 WORKDIR /app
 COPY package.json bun.lock ./
@@ -14,7 +14,7 @@ WORKDIR /app/examples/htmx-todos
 RUN bun install --frozen-lockfile
 RUN bun build client.ts --target=browser --minify --outfile=client.js
 
-FROM oven/bun:1.4.0-alpine
+FROM oven/bun:1.4.4-alpine
 
 WORKDIR /app
 COPY --from=build /app/src ./src

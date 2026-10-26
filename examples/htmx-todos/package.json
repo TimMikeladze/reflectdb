@@ -7,7 +7,7 @@
 		"dev": "bun --hot --watch server.ts"
 	},
 	"devDependencies": {
-		"@types/bun": "^1.2.23"
+		"@types/bun": "^1.4.4"
 	},
 	"dependencies": {
 		"htmx.org": "^4.0.0"

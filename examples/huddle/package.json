@@ -8,6 +8,6 @@
 		"start": "bun server.ts"
 	},
 	"devDependencies": {
-		"@types/bun": "^1.2.23"
+		"@types/bun": "^1.4.4"
 	}
 }

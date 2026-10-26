@@ -2288,7 +2288,7 @@ Three endpoints: `POST /sync/connect/:id`, `GET /sync/poll/:id`, `POST /sync/sen
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) 1.0+
+- [Bun](https://bun.sh) 1.4.4+
 - Node.js 22+ and npm — dev tooling, and `bun run verify:node`, which checks the published package works for Node consumers in both ESM and CommonJS
 
 ### Setup

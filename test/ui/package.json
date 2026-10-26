@@ -8,6 +8,6 @@
 		"test:sync": "bun test-sync.ts"
 	},
 	"devDependencies": {
-		"@types/bun": "^1.2.23"
+		"@types/bun": "^1.4.4"
 	}
 }
