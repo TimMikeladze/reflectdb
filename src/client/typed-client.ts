@@ -20,6 +20,7 @@ import type {
 	SyncOptions,
 } from "./sync-client.ts";
 import type { ClientStorageAdapter } from "./storage/types.ts";
+import type { TextBinding, TextBindingOptions } from "./text.ts";
 
 // ── Config ──────────────────────────────────────────────────────────────
 
@@ -63,6 +64,13 @@ export interface TypedSyncClient<TQueries extends SyncQueryMap> {
 		rowId: string,
 		payload: InferWritableRow<TQueries, K>,
 	): ClientOp;
+
+	text<K extends keyof TQueries & string>(
+		name: K,
+		rowId: string,
+		column: string,
+		options?: TextBindingOptions,
+	): TextBinding;
 
 	update<K extends keyof TQueries & string>(
 		name: K,

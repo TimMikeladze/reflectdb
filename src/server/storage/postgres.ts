@@ -80,9 +80,7 @@ export function createPostgresStorage(
 		`);
 
 		// Compaction scans by hlc alone.
-		await client.query(
-			`CREATE INDEX IF NOT EXISTS idx_${p}_oplog_hlc ON ${p}_oplog (hlc)`,
-		);
+		await client.query(`CREATE INDEX IF NOT EXISTS idx_${p}_oplog_hlc ON ${p}_oplog (hlc)`);
 
 		// Resume asks "which of these tables changed since HLC X" — a composite
 		// (tbl, hlc) index answers it from the index alone. Separate single-column
@@ -147,10 +145,10 @@ export function createPostgresStorage(
 				data: Record<string, unknown>;
 				col_clocks: Record<string, string>;
 				hlc: string;
-			}>(
-				`SELECT data, col_clocks, hlc FROM ${p}_rows WHERE tbl = $1 AND row_id = $2`,
-				[table, rowId],
-			);
+			}>(`SELECT data, col_clocks, hlc FROM ${p}_rows WHERE tbl = $1 AND row_id = $2`, [
+				table,
+				rowId,
+			]);
 
 			if (rows.length === 0) {
 				return { row: null, rowHlc: null, colClocks: {} };
@@ -164,10 +162,7 @@ export function createPostgresStorage(
 			};
 		},
 
-		async getRowsByIds(
-			table: string,
-			rowIds: string[],
-		): Promise<Record<string, ExistingRow>> {
+		async getRowsByIds(table: string, rowIds: string[]): Promise<Record<string, ExistingRow>> {
 			await ensureSchema();
 			if (rowIds.length === 0) return {};
 			const placeholders = rowIds.map((_, i) => `$${i + 2}`).join(", ");
@@ -185,8 +180,7 @@ export function createPostgresStorage(
 				out[r.row_id] = {
 					row: typeof r.data === "string" ? JSON.parse(r.data) : r.data,
 					rowHlc: r.hlc,
-					colClocks:
-						typeof r.col_clocks === "string" ? JSON.parse(r.col_clocks) : r.col_clocks,
+					colClocks: typeof r.col_clocks === "string" ? JSON.parse(r.col_clocks) : r.col_clocks,
 				};
 			}
 			return out;
@@ -201,10 +195,7 @@ export function createPostgresStorage(
 		): Promise<void> {
 			await ensureSchema();
 			if (row === null) {
-				await client.query(
-					`DELETE FROM ${p}_rows WHERE tbl = $1 AND row_id = $2`,
-					[table, rowId],
-				);
+				await client.query(`DELETE FROM ${p}_rows WHERE tbl = $1 AND row_id = $2`, [table, rowId]);
 			} else {
 				await client.query(
 					`INSERT INTO ${p}_rows (tbl, row_id, data, col_clocks, hlc)
@@ -225,17 +216,15 @@ export function createPostgresStorage(
 				row_id: string;
 				data: Record<string, unknown>;
 				col_clocks: Record<string, string>;
-			}>(
-				`SELECT row_id, data, col_clocks FROM ${p}_rows WHERE tbl = $1`,
-				[table],
-			);
+			}>(`SELECT row_id, data, col_clocks FROM ${p}_rows WHERE tbl = $1`, [table]);
 
 			const rows: Record<string, unknown>[] = [];
 			const colClocks: Record<string, Record<string, string>> = {};
 
 			for (const r of results) {
 				rows.push(typeof r.data === "string" ? JSON.parse(r.data) : r.data);
-				colClocks[r.row_id] = typeof r.col_clocks === "string" ? JSON.parse(r.col_clocks) : r.col_clocks;
+				colClocks[r.row_id] =
+					typeof r.col_clocks === "string" ? JSON.parse(r.col_clocks) : r.col_clocks;
 			}
 
 			return { rows, colClocks };
@@ -312,6 +301,37 @@ export function createPostgresStorage(
 		async unlock(key: string): Promise<void> {
 			const keyHash = hashKey(key);
 			await client.query(`SELECT pg_advisory_unlock($1)`, [keyHash]);
+		},
+
+		async applyOpIf(table, rowId, row, colClocks, hlc, opType, payload, expectedHlc) {
+			await ensureSchema();
+			const colClocksJson = JSON.stringify(colClocks);
+			const payloadJson = payload ? JSON.stringify(payload) : null;
+			// The op log row depends on the row write, so a lost race writes neither.
+			const logOp = `INSERT INTO ${p}_oplog (tbl, op, row_id, payload, hlc, col_clocks)
+				SELECT $1::text, $2::text, $3::text, $4::jsonb, $5::text, $6::jsonb FROM won`;
+			const base = [table, opType, rowId, payloadJson, hlc, colClocksJson];
+			let won: string;
+			let values: unknown[];
+			if (row === null) {
+				won = `DELETE FROM ${p}_rows WHERE tbl = $1::text AND row_id = $3::text AND hlc = $7::text RETURNING 1`;
+				values = [...base, expectedHlc];
+			} else if (expectedHlc === null) {
+				won = `INSERT INTO ${p}_rows (tbl, row_id, data, col_clocks, hlc)
+					VALUES ($1::text, $3::text, $7::jsonb, $6::jsonb, $5::text)
+					ON CONFLICT (tbl, row_id) DO NOTHING RETURNING 1`;
+				values = [...base, JSON.stringify(row)];
+			} else {
+				won = `UPDATE ${p}_rows SET data = $7::jsonb, col_clocks = $6::jsonb, hlc = $5::text
+					WHERE tbl = $1::text AND row_id = $3::text AND hlc = $8::text RETURNING 1`;
+				values = [...base, JSON.stringify(row), expectedHlc];
+			}
+			const result = await client.query<{ applied: string | number }>(
+				`WITH won AS (${won}), logged AS (${logOp} RETURNING 1)
+				SELECT count(*) AS applied FROM won`,
+				values,
+			);
+			return Number(result.rows[0]?.applied ?? 0) > 0;
 		},
 
 		async getOpsSince(since: string, tables: string[]): Promise<OpLogEntry[]> {

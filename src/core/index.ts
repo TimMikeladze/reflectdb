@@ -1,8 +1,22 @@
 // HLC
 export { createHlc, sendHlc, receiveHlc, packHlc, unpackHlc, compareHlc, type HLC } from "./hlc.ts";
 
+// Text columns
+export {
+	applyHunks,
+	diffText,
+	hashText,
+	mapOffset,
+	merge3,
+	TEXT_EDIT_KEY,
+	TEXT_SEEN_COLUMN,
+	type TextEdit,
+	type TextHunk,
+} from "./text.ts";
+
 // Types
 export type {
+	TextConflictPolicy,
 	OpType,
 	OpStatus,
 	SyncOp,

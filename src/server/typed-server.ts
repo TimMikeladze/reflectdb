@@ -170,6 +170,8 @@ export type ImplementOptions<
 				db: TDb,
 			) => Promise<void>;
 			broadcast?: "consistent" | "eager" | "eager-durable";
+			/** See `QueryOptions.oplog`. */
+			oplog?: "full" | "tables";
 			flushInterval?: number;
 			maxBufferSize?: number;
 			/** Override change-detection tables (defaults to schema.tables or query key name) */
@@ -367,6 +369,7 @@ export function createSyncServer<
 				authorize?: StoredImpl["authorize"];
 				serverSet?: Record<string, unknown>;
 				broadcast?: "consistent" | "eager" | "eager-durable";
+				oplog?: "full" | "tables";
 				flushInterval?: number;
 				maxBufferSize?: number;
 				tables?: string[];
@@ -418,6 +421,7 @@ export function createSyncServer<
 				groupBy: o.groupBy as never,
 				room: o.room,
 				broadcast: o.broadcast,
+				oplog: o.oplog,
 				flushInterval: o.flushInterval,
 				maxBufferSize: o.maxBufferSize,
 				authorize: o.authorize as never,

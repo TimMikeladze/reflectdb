@@ -35,6 +35,7 @@ You bring your own types and your own database. reflectdb handles the protocol, 
   - [Typed params for multi-tenant queries](#typed-params-for-multi-tenant-queries)
   - [Authentication and room-based access control](#authentication-and-room-based-access-control)
   - [Per-column merge for collaborative editing](#per-column-merge-for-collaborative-editing)
+  - [Collaborative text](#collaborative-text)
   - [Custom conflict resolvers](#custom-conflict-resolvers)
   - [Validating client payloads](#validating-client-payloads)
   - [Ephemeral messages (cursors, presence, typing)](#ephemeral-messages-cursors-presence-typing)
@@ -133,6 +134,7 @@ Optional bits (use what you want):
 - **Offline-first** — optimistic local writes, queued and replayed on reconnect
 - **End-to-end type safety** — schema defines row types, query params, writable fields, and which columns the server owns
 - **Per-row and per-column conflict resolution** — `lww`, `merge`, `server`, or a custom resolver
+- **Collaborative text** — two people typing in one value both keep their edits, with `client.text()` and `useText()`. The server merges, with no CRDT
 - **Causal ordering** via hybrid logical clocks (HLC) — no dependence on synchronized wall clocks
 - **Pluggable storage** — in-memory, SQLite, Postgres, or S3-compatible object storage for the server op log; memory or IndexedDB for the browser
 - **Auto-generated REST** — `server.rest()` turns your schema into CRUD endpoints that broadcast deltas
@@ -475,6 +477,55 @@ User A writes { title: "Hello" } at HLC 100
 User B writes { body: "world" }  at HLC 200
 → Result: { title: "Hello", body: "world" }   (both accepted)
 ```
+
+### Collaborative text
+
+`merge` keeps both writes when they touch different columns. When two people type in the same column, one of them loses. Declare the column as text and the server merges by content instead:
+
+```ts
+export const queries = defineSyncQueries({
+  blocks: {
+    row: t<{ id: string; text: string; order: number; deleted: boolean; _seen?: Record<string, number> }>(),
+    params: t<{ doc: string }>(),
+    conflict: { policy: "merge", text: ["text"], softDelete: "deleted" },
+  },
+});
+
+server.implement("blocks", {
+  room: "doc/:doc",
+  groupBy: ({ params }) => params.doc,              // one query per write, not one per subscriber
+  oplog: "tables",                                  // deleted text leaves with the row
+  query: (ctx, db) => db.blocksFor(ctx.params.doc), // must return `_seen`
+  mutate: (op, ctx, db) => db.upsertBlock(op.rowId, op.payload, ctx.params.doc),
+});
+```
+
+```tsx
+const { value, set, caret, remove } = useText("blocks", block.id, "text");
+
+// `value` includes what you've typed and what others have. Restore the caret after
+// a remote edit changes the value, or the browser sends it to the end.
+const ref = useRef<HTMLTextAreaElement>(null);
+useLayoutEffect(() => {
+  if (document.activeElement === ref.current) ref.current?.setSelectionRange(caret(), caret());
+}, [value]);
+
+<textarea ref={ref} value={value} onChange={(e) => set(e.target.value, e.target.selectionStart)} />;
+```
+
+Outside React, `client.text(table, rowId, column)` returns a `TextBinding` with `get`, `set(next, caret?)`, `caret`, `setCaret`, `remove`, `subscribe`, `ready`, `flush` and `close`.
+
+How it behaves:
+
+- **Merging.** Every 50 ms a changed value goes to the server with the text it was based on. Changes that don't overlap both land, the same change lands once, and overlapping changes delete the union of what they deleted and keep both inserts. The merge is `merge3` from `reflectdb/core`.
+- **Keep values small.** Use one row per paragraph or block rather than one per document. A value goes out in full under 256 characters and as a patch above that, but every write sends the whole value upstream.
+- **`_seen`.** The resolver adds a `_seen` column saying which writes the row includes, and the client uses it to know when its own write has come back. **`mutate` must persist it and `query` must return it.** Without it a binding waits forever.
+- **The row is the server's.** `useRow` and `getRow` show the server's text, and `useText` shows yours on top of it. A plain `update` of a text column stays last-writer-wins for that column.
+- **`remove()`** needs `softDelete`. It sets that column if the row's text is still what the client saw. Otherwise it does nothing, so an edit always beats a concurrent remove.
+- **Seeding.** A second `insert` with the same id leaves the first row alone, so two clients can seed from one source if the ids are derived from it.
+- **Several machines.** On Postgres a merge is a compare-and-swap, and a lost race resolves again and calls `mutate` again, so `mutate` has to be an upsert of what it's given. Merges stay correct on any number of machines, but with `poll` people on different machines see each other up to one poll interval late.
+- **Not supported:** eager broadcasts, because a text edit is an instruction to merge. Registering one throws. `server.emit` and `applyServerOp` write a text row without the row queue, so a concurrent client edit can overwrite them.
+- **Same caret.** Two people typing at one caret lose nothing, but latency can interleave the characters. It's not a CRDT.
 
 ### Custom conflict resolvers
 
@@ -1352,8 +1403,8 @@ counts them, and they drain on reconnect.
 │   ├─ .auth(token → AuthContext)   │  │   ├─ .subscribe / .subscribeTable    │
 │   ├─ .room(pattern, cb)           │  │   ├─ .getRows / .getRow / .getState  │
 │   ├─ .rateLimit / .compaction     │  │   ├─ .loadMore / .getTotalCount      │
-│   ├─ .rest({ prefix })            │  │   └─ .sendEphemeral / .subscribeEph. │
-│   ├─ .notifyChange / .emit / .tx  │  │                                      │
+│   ├─ .rest({ prefix })            │  │   ├─ .sendEphemeral / .subscribeEph. │
+│   ├─ .notifyChange / .emit / .tx  │  │   └─ .text(name, id, column)         │
 │   ├─ .lock / .interval / .timeout │  │  Internal:                           │
 │   └─ .close()                     │  │                                      │
 │                                   │  │   • SyncClient (state machine)       │
@@ -1486,8 +1537,9 @@ defineSyncQueries({
 | `merge` | Column      | Both preserved                        | Collaborative editing |
 | `server`| Row         | Only first write; all others rejected | Config, reference data |
 | custom  | You choose  | Your logic                            | Counters, "highest bid wins", business rules |
+| `{ policy: "merge", text: [...] }` | Column, by content for `text` | Both preserved, even in one column | [Collaborative text](#collaborative-text) |
 
-A custom resolver receives the incoming op, the existing row + per-column clocks, and metadata, and returns the resolved row. Throw to reject.
+A custom resolver receives the incoming op, the existing row + per-column clocks, and metadata, and returns the resolved row. Throw to reject. If the row it returns differs from what the writer sent, the writer gets a delta too. Ops on one row run one at a time per server, and on Postgres or SQLite a resolver runs again if another machine wrote the row first, so it has to be pure.
 
 `merge` is a **server-side** guarantee: the server resolves per column using the client op HLCs held in its mirror, so two clients editing different fields both land. The per-column clocks a client sees on a broadcast are a different domain — a diff-driven broadcast can't attribute a column to the op that produced it, so every column changed in one broadcast carries that broadcast's HLC. Client-side merge orders *broadcasts* against each other and against local optimistic state; it does not reconstruct per-column causality between clients.
 
@@ -1505,6 +1557,8 @@ Both eager broadcast modes skip conflict resolution entirely — writes land las
 7.                                server ──▶ snapshot per changed query,
                                               then resume_complete
 ```
+
+A delta carries the row's changed columns. A [text column](#collaborative-text) over 256 characters can go as `textPatches` instead, a change plus a hash of the result. A client whose text doesn't produce that hash bootstraps again. The writer is left out of a broadcast unless a conflict resolver changed what it sent.
 
 All messages are JSON; the transport is just a pipe. WebSocket gives bi-directional real-time; SSE gives server-push with POST for upstream; polling is stateless HTTP for constrained environments.
 
@@ -1552,6 +1606,7 @@ import {
   MutationError, TransportSendError, isErrorReason, reasonFromError,
   PROTOCOL_VERSION, MAX_CLOCK_DRIFT_MS, MAX_BATCH_SIZE,
   TOMBSTONE_RETENTION_MS, SERVER_TOMBSTONE_RETENTION_MS,
+  merge3, diffText, applyHunks, mapOffset, hashText,
 } from "reflectdb/core";
 ```
 
@@ -1566,6 +1621,10 @@ import {
 | `MutationError(reason, message?)` | Throw from `mutate`/`authorize` to reject a write with a specific `ErrorReason`. |
 | `TransportSendError(clientId, message)` | Throw from a custom `ServerTransport.send` when a frame did not reach the peer. |
 | `isErrorReason(v)` / `reasonFromError(e)` | Validate / extract an `ErrorReason`. |
+| `merge3(base, ours, theirs)` | The three-way text merge behind [text columns](#collaborative-text). |
+| `diffText(a, b)` / `applyHunks(text, hunks)` | Character diff as `[start, end, insert]` hunks, and applying them. |
+| `mapOffset(prev, next, offset)` | Where a caret offset lands after an edit. |
+| `hashText(text)` | FNV-1a, for checking a patch landed on the right text. Not a security boundary. |
 
 Types: `HLC`, `SyncOp`, `OpType`, `OpStatus`, `ClientMessage`, `ServerMessage`, `ErrorReason`, `ConflictPolicy`, `ConflictResolver`, `SyncQueryDef`, `SyncViewDef`, `SyncPresenceDef`, `SyncQueryEntry`, `SyncQueryMap`, `InferRow`, `InferState`, `InferParams`, `InferWritableRow`, `RequiresParams`, `RateLimitConfig`, `CompactionConfig`, `ShapeConfig`, `AuthContext`, `DrizzleTableLike`.
 
@@ -1665,8 +1724,9 @@ import { createIndexedDBStorage } from "reflectdb/client/storage/indexeddb";
 | Category | Methods |
 |----------|---------|
 | Lifecycle | `init()`, `connect()`, `bootstrap()`, `resume()`, `push()`, `close()` |
-| Subscriptions | `sync(name, params?)`, `unsync(name)` |
+| Subscriptions | `sync(name, params?)`, `unsync(name)`. On a connected client `sync` also bootstraps, which re-snapshots every synced table. Calling it with new params swaps the rows |
 | Mutations | `insert(name, id, payload)`, `update(name, id, patch)`, `delete(name, id)`, `batch(ops)` |
+| Text | `text(name, id, column, options?)` returns a `TextBinding`. See [Collaborative text](#collaborative-text) |
 | Reads | `getRows(name)`, `getRow(name, id)`, `getState()`, `getVersion()`, `getPendingCount()` |
 | Observation | `subscribe(listener)`, `subscribeTable(name, listener)` (returns unsubscribe fn) |
 | Windowing | `loadMore(name, count)`, `getTotalCount(name)` |
@@ -1707,6 +1767,7 @@ import {
 | `useSync(table, options?)` | `{ rows, insert, update, remove, loading }` — options: `{ params?, includeDeleted?, window? }` |
 | `useSyncStatus()` | `"hydrating" \| "disconnected" \| "connecting" \| "connected" \| "bootstrapping" \| "synced"` |
 | `useRow(table, id)` | Single row or `null` |
+| `useText(table, id, column)` | `{ value, set, caret, setCaret, remove, binding }`. See [Collaborative text](#collaborative-text) |
 | `usePendingCount()` | Total unsynced op count |
 | `useEphemeral({ key, userId, ttlMs?, transport? })` | `{ events, broadcast }` — `transport` routes frames when a peer mesh is attached ([Peer-to-peer](#peer-to-peer-webrtc)) |
 | `useTotalCount(table)` | Server-side count (requires `countHints: true`) |
@@ -1819,7 +1880,7 @@ Every entry in `defineSyncQueries({ ... })`:
   params: t<{ orgId: string }>(),         // typed query params (required on sync() if declared)
   tables: ["posts", "post_tags"],         // change-detection tables; defaults to the query key
   pk: "id",                               // primary-key column name (default "id")
-  conflict: "lww",                        // "lww" | "merge" | "server" | { policy: "custom", resolve }
+  conflict: "lww",                        // "lww" | "merge" | "server" | { policy: "custom", resolve } | { policy: "merge", text: [...] }
   readonly: ["createdBy"],                // fields the client cannot write
   serverSet: ["createdAt", "updatedAt"],  // fields the server always sets — required in `implement.serverSet`
   countHints: true,                       // emit count_changed deltas for windowed sync
@@ -1904,6 +1965,7 @@ server.implement("todos", {
   },
   serverSet: { createdAt: () => new Date() }, // required if schema declares serverSet fields
   broadcast: "consistent",                    // "consistent" | "eager" | "eager-durable"
+  oplog: "full",                              // "full" | "tables": keep the row per write, or only that the table changed
   flushInterval: 50,                          // ms, for eager broadcasting
   maxBufferSize: 100,                         // ops per eager batch
   tables: ["todos"],                          // override change-detection set
@@ -2005,6 +2067,8 @@ At boot the client restores its persisted subscriptions first and hydrates only 
 | `createSqliteStorage({ path?, db? })` | `reflectdb/server` | Single server, development, embedded — **Bun only** |
 | `createPostgresStorage(poolOrConfig)` | `reflectdb/server` | Multi-server HA, production |
 | `createObjectStorage({ store, roomId })` | `reflectdb/server/storage/object` | S3-compatible object storage as the only durable store — no database |
+
+A custom adapter can implement `applyOpIf(table, rowId, row, colClocks, hlc, opType, payload, expectedHlc)`: `applyOp`, only if the row's hlc is still `expectedHlc` (null means no row), returning whether it wrote. Text and custom conflict policies use it to stay correct when several machines share the store. Without it they're correct on one machine at a time. SQLite and Postgres implement it. The object adapter doesn't, since it elects one writer per room. I haven't tested text columns with its `"optimistic"` mode.
 
 `createPostgresStorage` accepts any object with `query(text, values) => { rows }` — `pg.Pool`, `pg.Client`, `@neondatabase/serverless`, etc. Optional config: `{ client, tablePrefix: "_reflectdb" }`.
 

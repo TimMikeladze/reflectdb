@@ -9,6 +9,7 @@ import {
 } from "react";
 import { pushSafely } from "../client/sync-client.ts";
 import type { EphemeralTransport, SyncClient, SyncClientState } from "../client/sync-client.ts";
+import type { TextBinding, TextBindingOptions } from "../client/text.ts";
 import type { EphemeralEvent } from "../core/types.ts";
 import { SyncContext } from "./context.tsx";
 import { useSyncClient } from "./context.tsx";
@@ -167,6 +168,52 @@ export function useRow<T extends object = Record<string, unknown>>(
 		() => client.getRow(table, rowId) as T | null,
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[client, table, rowId, version],
+	);
+}
+
+/**
+ * One text column of one row, for an input. `value` includes what you've typed and
+ * what others have. The table needs `conflict: { policy: "merge", text: [column] }`.
+ *
+ * ```tsx
+ * const { value, set, caret } = useText("blocks", id, "text");
+ * <textarea value={value} onChange={(e) => set(e.target.value, e.target.selectionStart)} />
+ * ```
+ */
+export function useText(
+	table: string,
+	rowId: string,
+	column: string,
+	options?: TextBindingOptions,
+): {
+	value: string;
+	set: (next: string, caret?: number) => void;
+	caret: () => number;
+	setCaret: (caret: number) => void;
+	remove: () => void;
+	binding: TextBinding;
+} {
+	const client = useSyncClient();
+	const binding = useMemo(
+		() => client.text(table, rowId, column, options),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[client, table, rowId, column],
+	);
+	useEffect(() => {
+		binding.open();
+		return () => binding.close();
+	}, [binding]);
+	const value = useSyncExternalStore(binding.subscribe, binding.get, binding.get);
+	return useMemo(
+		() => ({
+			value,
+			set: (next: string, caret?: number) => binding.set(next, caret),
+			caret: () => binding.caret(),
+			setCaret: (caret: number) => binding.setCaret(caret),
+			remove: () => binding.remove(),
+			binding,
+		}),
+		[value, binding],
 	);
 }
 

@@ -25,12 +25,20 @@ import type { AuthorizeAction, MutateResult, MutationContext, ResolvedOp } from 
 export interface BatchContext {
 	freshOpIds: Set<string>;
 	rows: Map<string, ExistingRow>;
+	/** Rows another client wrote since `rows` was read. Read again, never from `rows`. */
+	stale: Set<string>;
 }
+
+/** Lost compare-and-swap races before an op gives up. */
+const MAX_WRITE_ATTEMPTS = 8;
+const RETRY_WRITE = Symbol("retry write");
 
 export interface OpResult {
 	accepted: boolean;
 	reason?: ErrorReason;
 	serverRow?: Record<string, unknown> | null;
+	/** The resolver changed what the writer sent, so its own broadcast has to reach it. */
+	hearWriter?: boolean;
 }
 
 /**
@@ -60,6 +68,13 @@ export interface OpProcessorDeps<TAuth extends AuthContext> {
 	 * of the same rowId diffs as a partial update against that dead row.
 	 */
 	forgetWriterRow(tableName: string, clientId: string, rowId: string): void;
+	/** A client was sent this whole row outside the broadcast engine. */
+	recordDeliveredRow(
+		tableName: string,
+		clientId: string,
+		rowId: string,
+		row: Record<string, unknown>,
+	): void;
 	/**
 	 * Advance the writer's own cached result set by the columns it just applied
 	 * optimistically. Same reason as `forgetWriterRow`, for the other ops: with
@@ -92,11 +107,33 @@ export interface OpProcessorDeps<TAuth extends AuthContext> {
  * optimistic row (see the store's `applyOptimistic`), so it is not holding them
  * and must still receive them by delta.
  */
+function sameValue(a: unknown, b: unknown): boolean {
+	return a === b || JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** Whether this op stamped a column with something other than what the writer sent. */
+function resolverChangedValue(
+	row: Record<string, unknown> | null,
+	colClocks: Record<string, string>,
+	opHlc: string,
+	serverSet: Record<string, unknown> | undefined,
+	sent: Record<string, unknown> | null,
+): boolean {
+	if (!row) return false;
+	for (const [column, clock] of Object.entries(colClocks)) {
+		if (column === "_row" || clock !== opHlc || !(column in row)) continue;
+		if (serverSet && column in serverSet) continue;
+		if (!sameValue(sent?.[column], row[column])) return true;
+	}
+	return false;
+}
+
 function writerHeldColumns(
 	row: Record<string, unknown> | null,
 	colClocks: Record<string, string>,
 	opHlc: string,
 	serverSet: Record<string, unknown> | undefined,
+	sent?: Record<string, unknown> | null,
 ): Record<string, unknown> | null {
 	if (!row) return null;
 	const columns: Record<string, unknown> = {};
@@ -105,6 +142,9 @@ function writerHeldColumns(
 		if (column === "_row" || clock !== opHlc) continue;
 		if (serverSet && column in serverSet) continue;
 		if (!(column in row)) continue;
+		// A resolver can stamp a column with a value the writer never sent, such as
+		// a merge. The writer isn't holding that, so it has to be told.
+		if (sent !== undefined && !sameValue(sent?.[column], row[column])) continue;
 		columns[column] = row[column];
 		any = true;
 	}
@@ -121,8 +161,14 @@ function writerHeldColumns(
  * straight to subscribers — they still run every enforcement gate.
  */
 export class OpProcessor<TAuth extends AuthContext = AuthContext> {
+	private activeBatches = new Set<BatchContext>();
+	private rowQueues = new Map<string, Promise<unknown>>();
+
 	/** What a rejected op's client should roll back to: the row as it was last told it. */
-	private toldRow(op: { table: string; rowId: string }, clientId: string): Record<string, unknown> | null {
+	private toldRow(
+		op: { table: string; rowId: string },
+		clientId: string,
+	): Record<string, unknown> | null {
 		return this.deps.clientViewRow(op.table, clientId, op.rowId);
 	}
 
@@ -171,6 +217,8 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 	async prefetchBatch(ops: ClientOp[]): Promise<BatchContext> {
 		const freshOpIds = new Set<string>();
 		const rows = new Map<string, ExistingRow>();
+		const batch: BatchContext = { freshOpIds, rows, stale: new Set() };
+		this.activeBatches.add(batch);
 
 		// Only ops that can actually be applied get reserved. Reserving one that
 		// `processClientOp` rejects before its replay check — unknown query, or
@@ -221,7 +269,12 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 			}
 		}
 
-		return { freshOpIds, rows };
+		return batch;
+	}
+
+	/** The batch's ops are done, so writes no longer need to mark its rows stale. */
+	finishBatch(batch: BatchContext): void {
+		this.activeBatches.delete(batch);
 	}
 
 	/** Read a row, preferring the batch prefetch cache. */
@@ -230,11 +283,13 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 		rowId: string,
 		batchCtx?: BatchContext,
 	): Promise<ExistingRow> {
-		const cached = batchCtx?.rows.get(OpProcessor.rowKey(table, rowId));
+		const key = OpProcessor.rowKey(table, rowId);
+		const cached = batchCtx?.stale.has(key) ? undefined : batchCtx?.rows.get(key);
 		if (cached) return cached;
 		if (!this.storage) return { row: null, rowHlc: null, colClocks: {} };
 		const existing = await this.storage.getRow(table, rowId);
-		batchCtx?.rows.set(OpProcessor.rowKey(table, rowId), existing);
+		batchCtx?.rows.set(key, existing);
+		batchCtx?.stale.delete(key);
 		return existing;
 	}
 
@@ -251,11 +306,12 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 		colClocks: Record<string, string>,
 		hlc: string,
 	): void {
-		batchCtx?.rows.set(OpProcessor.rowKey(table, rowId), {
-			row,
-			rowHlc: hlc,
-			colClocks,
-		});
+		const key = OpProcessor.rowKey(table, rowId);
+		for (const batch of this.activeBatches) {
+			if (batch !== batchCtx) batch.stale.add(key);
+		}
+		batchCtx?.stale.delete(key);
+		batchCtx?.rows.set(key, { row, rowHlc: hlc, colClocks });
 	}
 
 	async processClientOp(
@@ -305,7 +361,12 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 		}
 
 		// ── Consistent path (default): full pipeline → persist → broadcast via change detection ──
-		return this.processConsistentOp(op, queryReg, session, deferredBroadcastTables, batchCtx);
+		// One op at a time per row. Read, resolve and write span an await on `mutate`,
+		// and only one client's messages are serialized, so two clients on one row
+		// would otherwise each merge against the row from before the other's write.
+		return this.onRow(`${op.table}\0${op.rowId}`, () =>
+			this.processConsistentOp(op, queryReg, session, deferredBroadcastTables, batchCtx),
+		);
 	}
 
 	private async processEagerOp(
@@ -433,7 +494,7 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 				table: op.table,
 				op: op.op,
 				rowId: op.rowId,
-				payload,
+				payload: queryReg.options.oplog === "tables" ? null : payload,
 				hlc: hlcStr,
 				colClocks,
 			},
@@ -465,7 +526,15 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 		// can't leave subscribers with an op the server doesn't remember.
 		// Standard eager mode pushes to the buffer and flushes lazily.
 		if (queryReg.options.broadcast === "eager-durable" && this.storage) {
-			await this.storage.applyOp!(op.table, op.rowId, mergedRow, colClocks, hlcStr, op.op, payload);
+			await this.storage.applyOp!(
+				op.table,
+				op.rowId,
+				mergedRow,
+				colClocks,
+				hlcStr,
+				op.op,
+				queryReg.options.oplog === "tables" ? null : payload,
+			);
 			this.recordBatchWrite(batchCtx, op.table, op.rowId, mergedRow, colClocks, hlcStr);
 		} else if (!this.storage) {
 			// Nothing to persist: the op log is disabled entirely. Buffering here
@@ -488,7 +557,7 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 						colClocks,
 						hlcStr,
 						op.op,
-						payload,
+						queryReg.options.oplog === "tables" ? null : payload,
 					);
 				} catch (err) {
 					console.error("[reflectdb] eager fallback applyOp after buffer overflow failed:", err);
@@ -531,6 +600,15 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 		// allSettled: a single failing subscriber must not abort the broadcast
 		// to the rest. Per-client send errors land in the transport layer's
 		// own retry/cleanup path.
+		// These deltas skip the result cache, so record what they delivered. A later
+		// broadcast diffs against it, and a row the cache never heard of never gets
+		// its delete sent.
+		for (const sub of subscribers) {
+			if (sub.clientId === session.clientId) continue;
+			if (op.op === "delete") this.deps.forgetWriterRow(op.table, sub.clientId, op.rowId);
+			else if (mergedRow) this.deps.recordDeliveredRow(op.table, sub.clientId, op.rowId, mergedRow);
+		}
+
 		const eagerResults = await Promise.allSettled(eagerSendPromises);
 		for (const r of eagerResults) {
 			if (r.status === "rejected") {
@@ -548,6 +626,21 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 		return { accepted: true };
 	}
 
+	private onRow<T>(key: string, fn: () => Promise<T>): Promise<T> {
+		const prev = this.rowQueues.get(key) ?? Promise.resolve();
+		const run = prev.then(fn, fn);
+		const stored: Promise<unknown> = run.then(
+			() => {
+				if (this.rowQueues.get(key) === stored) this.rowQueues.delete(key);
+			},
+			() => {
+				if (this.rowQueues.get(key) === stored) this.rowQueues.delete(key);
+			},
+		);
+		this.rowQueues.set(key, stored);
+		return run;
+	}
+
 	private async processConsistentOp(
 		op: ClientOp,
 		queryReg: QueryRegistration,
@@ -555,6 +648,35 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 		deferredBroadcastTables?: Set<string>,
 		batchCtx?: BatchContext,
 	): Promise<OpResult> {
+		for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt++) {
+			const result = await this.attemptConsistentOp(
+				op,
+				queryReg,
+				session,
+				deferredBroadcastTables,
+				batchCtx,
+				attempt > 0,
+			);
+			if (result !== RETRY_WRITE) return result;
+		}
+		console.error(
+			`[reflectdb] ${op.table}/${op.rowId}: lost ${MAX_WRITE_ATTEMPTS} write races, rejecting the op`,
+		);
+		return {
+			accepted: false,
+			reason: "server_error",
+			serverRow: this.toldRow(op, session.clientId),
+		};
+	}
+
+	private async attemptConsistentOp(
+		op: ClientOp,
+		queryReg: QueryRegistration,
+		session: ClientSession<TAuth>,
+		deferredBroadcastTables: Set<string> | undefined,
+		batchCtx: BatchContext | undefined,
+		fresh: boolean,
+	): Promise<OpResult | typeof RETRY_WRITE> {
 		let options = queryReg.options;
 
 		// Resolve serverSet functions with mutation context before pipeline
@@ -572,7 +694,9 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 		// Get existing row from storage
 		let existing: ExistingRow = { row: null, rowHlc: null, colClocks: {} };
 		if (this.storage) {
-			existing = await this.readRow(op.table, op.rowId, batchCtx);
+			existing = fresh
+				? await this.storage.getRow(op.table, op.rowId)
+				: await this.readRow(op.table, op.rowId, batchCtx);
 		}
 
 		const ctx: PipelineContext = {
@@ -585,6 +709,7 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 		};
 
 		const result = processOp(op, existing, ctx);
+		let hearWriter = false;
 
 		if (result.accepted) {
 			// Build ResolvedOp from pipeline result
@@ -641,15 +766,33 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 			// Write to sync storage AFTER mutate succeeds. Atomic via applyOp —
 			// non-atomic adapters get a documented warning + shim in setStorage.
 			if (this.storage) {
-				await this.storage.applyOp!(
-					op.table,
-					op.rowId,
-					result.resolvedRow,
-					result.updatedColClocks,
-					op.hlc,
-					op.op,
-					result.resolvedRow,
-				);
+				const logged = options.oplog === "tables" ? null : result.resolvedRow;
+				// Merge policies decide from the row they read, so on a shared store
+				// another machine's write since then means deciding again. `mutate` runs
+				// again too, so it has to be an upsert of what it's given.
+				if (typeof options.conflict === "object" && this.storage.applyOpIf) {
+					const won = await this.storage.applyOpIf(
+						op.table,
+						op.rowId,
+						result.resolvedRow,
+						result.updatedColClocks,
+						op.hlc,
+						op.op,
+						logged,
+						existing.rowHlc,
+					);
+					if (!won) return RETRY_WRITE;
+				} else {
+					await this.storage.applyOp!(
+						op.table,
+						op.rowId,
+						result.resolvedRow,
+						result.updatedColClocks,
+						op.hlc,
+						op.op,
+						logged,
+					);
+				}
 				this.recordBatchWrite(
 					batchCtx,
 					op.table,
@@ -671,8 +814,16 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 					result.updatedColClocks,
 					op.hlc,
 					options.serverSet,
+					op.payload,
 				);
 				if (held) this.deps.recordWriterColumns(op.table, session.clientId, op.rowId, held);
+				hearWriter = resolverChangedValue(
+					result.resolvedRow,
+					result.updatedColClocks,
+					op.hlc,
+					options.serverSet,
+					op.payload,
+				);
 			}
 
 			// Collect affected tables for deferred broadcast (batch path) or broadcast immediately
@@ -692,7 +843,7 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 					}
 				}
 				for (const table of tablesToBroadcast) {
-					await this.deps.broadcastChanges(table, session.clientId);
+					await this.deps.broadcastChanges(table, hearWriter ? "" : session.clientId);
 				}
 			}
 		}
@@ -701,6 +852,7 @@ export class OpProcessor<TAuth extends AuthContext = AuthContext> {
 			accepted: result.accepted,
 			reason: result.reason,
 			serverRow: result.accepted ? undefined : this.toldRow(op, session.clientId),
+			hearWriter,
 		};
 	}
 }

@@ -129,6 +129,12 @@ export interface QueryOptions<TAuth extends AuthContext = AuthContext, TDb = unk
 	 * Ignored by both `eager` broadcast modes.
 	 */
 	conflict?: ConflictPolicy;
+	/**
+	 * What the op log keeps per write. `"full"` (default) keeps the row. `"tables"`
+	 * keeps only that the table changed, which is all resume asks, so text that was
+	 * deleted leaves the server with the row instead of waiting for compaction.
+	 */
+	oplog?: "full" | "tables";
 	serverSet?: Record<string, unknown>;
 	readonly?: string[];
 	countHints?: boolean;

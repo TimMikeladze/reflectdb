@@ -121,11 +121,12 @@ describe("SyncClient - Sync Control", () => {
 
 		await client.sync("posts", { orgId: "org-1" });
 
-		expect(transport.sentMessages.length).toBe(1);
 		const syncDeclare = transport.sentMessages[0] as SyncDeclareMessage;
 		expect(syncDeclare.type).toBe("sync_declare");
 		expect(syncDeclare.table).toBe("posts");
 		expect(syncDeclare.params).toEqual({ orgId: "org-1" });
+		// A declare only subscribes, so rows need a bootstrap behind it.
+		expect(transport.sentMessages[1]?.type).toBe("bootstrap");
 	});
 
 	test("unsync sends unsync and clears local data", async () => {
