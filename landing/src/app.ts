@@ -123,6 +123,11 @@ const FEATURE_CARDS: Card[] = [
 		src: S.F_MERGE,
 	},
 	{
+		title: "Collaborative text",
+		desc: "Two people typing in one value both keep their edits. The server does a three-way merge, with no CRDT, and useText keeps the caret in place.",
+		src: S.F_TEXT,
+	},
+	{
 		title: "Bring your own database",
 		desc: "query and mutate get your db handle untouched. Drizzle, Kysely, Prisma, raw SQL, or a Map.",
 		src: S.F_BYODB,

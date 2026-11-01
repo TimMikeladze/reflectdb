@@ -143,6 +143,11 @@ export class ResultCache {
 	 * as removed and emit a phantom `null`. Under-claiming is safe (it costs one
 	 * redundant delta); over-claiming is the bug this method exists to fix.
 	 */
+	/** Set one row of a client's cached result, if it has one for this query. */
+	putRow(clientId: string, queryName: string, rowId: string, row: Record<string, unknown>): void {
+		this.cache.get(clientId)?.get(queryName)?.set(rowId, structuredClone(row));
+	}
+
 	patchRow(
 		clientId: string,
 		queryName: string,

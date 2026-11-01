@@ -1,3 +1,4 @@
+import { TEXT_EDIT_KEY } from "../core/text.ts";
 import type { ClientOp, OpStatus, ErrorReason } from "../core/types.ts";
 import { compareHlc } from "../core/hlc.ts";
 import type { ClientStorageAdapter } from "./storage/types.ts";
@@ -471,6 +472,13 @@ export class ClientStore {
 	applyOptimistic(op: ClientOp): void {
 		const meta = this.tableMeta.get(op.table);
 		let payload = op.payload;
+
+		// A text edit is an instruction to the server. The binding renders the
+		// typing, and the row keeps the server's text.
+		if (payload && TEXT_EDIT_KEY in payload) {
+			const { [TEXT_EDIT_KEY]: _edit, ...rest } = payload;
+			payload = rest;
+		}
 
 		// Strip serverSet fields from local materialization (design decision #4)
 		if (payload && meta?.serverSet.length) {

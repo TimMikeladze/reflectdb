@@ -1,6 +1,6 @@
 # ReflectDB
 
-> ReflectDB is a TypeScript sync engine that keeps application database rows in sync with browser clients. It supports optimistic writes, offline replay, typed queries, and WebSocket, SSE, or polling transports.
+> ReflectDB is a TypeScript sync engine that keeps application database rows in sync with browser clients. It supports optimistic writes, offline replay, collaborative text, typed queries, and WebSocket, SSE, or polling transports.
 
 Install with `npm install reflectdb` or `bun add reflectdb`. The package ships
 ESM and CommonJS. React and Drizzle integrations use optional peer dependencies;

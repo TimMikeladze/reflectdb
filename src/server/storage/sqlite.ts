@@ -164,6 +164,7 @@ export function createSqliteStorage(
 	);
 
 	const deleteRowStmt = db.prepare("DELETE FROM _reflectdb_rows WHERE tbl = ? AND row_id = ?");
+	const getRowHlcStmt = db.prepare("SELECT hlc FROM _reflectdb_rows WHERE tbl = ? AND row_id = ?");
 
 	const getRowsStmt = db.prepare<{ row_id: string; data: string; col_clocks: string }>(
 		"SELECT row_id, data, col_clocks FROM _reflectdb_rows WHERE tbl = ?",
@@ -306,6 +307,28 @@ export function createSqliteStorage(
 				);
 			});
 			tx();
+		},
+
+		async applyOpIf(table, rowId, row, colClocks, hlc, opType, payload, expectedHlc) {
+			const tx = db.transaction(() => {
+				const current = getRowHlcStmt.get(table, rowId) as { hlc: string } | null | undefined;
+				if ((current?.hlc ?? null) !== expectedHlc) return false;
+				if (row === null) {
+					deleteRowStmt.run(table, rowId);
+				} else {
+					putRowStmt.run(table, rowId, JSON.stringify(row), JSON.stringify(colClocks), hlc);
+				}
+				appendOpStmt.run(
+					table,
+					opType,
+					rowId,
+					payload ? JSON.stringify(payload) : null,
+					hlc,
+					JSON.stringify(colClocks),
+				);
+				return true;
+			});
+			return tx();
 		},
 
 		async getOpsSince(since: string, tables: string[]): Promise<OpLogEntry[]> {

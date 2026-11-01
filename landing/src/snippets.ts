@@ -116,6 +116,7 @@ export const CONFLICT = `defineSyncQueries({
   posts:  { row: t<Post>(),   conflict: "lww" },     // row-level, newest wins
   docs:   { row: t<Doc>(),    conflict: "merge" },   // per-column clocks
   config: { row: t<Config>(), conflict: "server" },  // first write wins
+  blocks: { row: t<Block>(),  conflict: { policy: "merge", text: ["text"] } }, // merges by content
   bids:   {
     row: t<Bid>(),
     conflict: {
@@ -186,6 +187,11 @@ export const F_OFFLINE = `<SyncProvider
 
 const pending = usePendingCount();
 // close the laptop, keep typing, reopen — the queue replays`;
+
+export const F_TEXT = `{ blocks: { row: t<Block>(), conflict: { policy: "merge", text: ["text"] } } }
+
+const { value, set } = useText("blocks", id, "text");
+<textarea value={value} onChange={(e) => set(e.target.value, e.target.selectionStart)} />`;
 
 export const F_MERGE = `{ docs: { row: t<Doc>(), conflict: "merge" } }
 

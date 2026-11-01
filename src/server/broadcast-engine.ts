@@ -1,3 +1,4 @@
+import { diffText, hashText, type TextHunk } from "../core/text.ts";
 import type { ServerMessage } from "../core/types.ts";
 import type { AuthContext } from "../core/types.ts";
 import type { ResultCache } from "./result-cache.ts";
@@ -24,6 +25,36 @@ export function stableStringify(value: unknown): string {
 		parts.push(`${JSON.stringify(key)}:${stableStringify(obj[key])}`);
 	}
 	return `{${parts.join(",")}}`;
+}
+
+/** Below this a whole value is about as small as a patch of it. */
+const MIN_PATCH_LENGTH = 256;
+
+/** Send a text column's change instead of its value when that's clearly smaller. */
+function patchTextColumns(
+	changed: Record<string, unknown>,
+	held: Record<string, unknown> | undefined,
+	textColumns: readonly string[] | undefined,
+): {
+	payload: Record<string, unknown>;
+	textPatches?: Record<string, { hunks: TextHunk[]; hash: number }>;
+} {
+	if (!textColumns || !held) return { payload: changed };
+	let payload = changed;
+	let textPatches: Record<string, { hunks: TextHunk[]; hash: number }> | undefined;
+	for (const column of textColumns) {
+		const next = changed[column];
+		const prev = held[column];
+		if (typeof next !== "string" || typeof prev !== "string" || next.length < MIN_PATCH_LENGTH) {
+			continue;
+		}
+		const hunks = diffText(prev, next);
+		if (JSON.stringify(hunks).length * 2 > next.length) continue;
+		if (payload === changed) payload = { ...changed };
+		delete payload[column];
+		textPatches = { ...textPatches, [column]: { hunks, hash: hashText(next) } };
+	}
+	return textPatches ? { payload, textPatches } : { payload };
 }
 
 export interface BroadcastEngineDeps<TAuth extends AuthContext> {
@@ -153,9 +184,27 @@ export class BroadcastEngine<TAuth extends AuthContext = AuthContext> {
 	}
 
 	/** The row `clientId` was last sent for it by `queryName`, or null. */
-	clientViewRow(queryName: string, clientId: string, rowId: string): Record<string, unknown> | null {
+	clientViewRow(
+		queryName: string,
+		clientId: string,
+		rowId: string,
+	): Record<string, unknown> | null {
 		const row = this.deps.resultCache.get(clientId, queryName).get(rowId);
 		return row ? { ...row } : null;
+	}
+
+	/** See `OpProcessorDeps.recordDeliveredRow`. */
+	recordDeliveredRow(
+		tableName: string,
+		clientId: string,
+		rowId: string,
+		row: Record<string, unknown>,
+	): void {
+		const affectedQueries = this.deps.tableDependencyIndex.get(tableName);
+		if (!affectedQueries) return;
+		for (const queryName of affectedQueries) {
+			this.deps.resultCache.putRow(clientId, queryName, rowId, row);
+		}
 	}
 
 	/**
@@ -388,6 +437,9 @@ export class BroadcastEngine<TAuth extends AuthContext = AuthContext> {
 		const queryName = queryReg.name;
 		const pk = queryReg.options.pk ?? "id";
 		const isWindowed = sub.windowSize != null;
+		const conflict = queryReg.options.conflict;
+		const textColumns =
+			typeof conflict === "object" && conflict.policy === "merge" ? conflict.text : undefined;
 
 		// Serialize diff → send → commit per (client, query). Without this,
 		// concurrent broadcasts both diff the same stale cache and the losing
@@ -420,15 +472,20 @@ export class BroadcastEngine<TAuth extends AuthContext = AuthContext> {
 			}
 
 			for (const upd of diff.updated) {
+				const held = textColumns
+					? this.deps.resultCache.get(session.clientId, queryName).get(upd.rowId)
+					: undefined;
+				const { payload, textPatches } = patchTextColumns(upd.changed, held, textColumns);
 				sendPromises.push(
 					this.deps.send(session.clientId, {
 						type: "delta",
 						table: queryName,
 						op: "update",
 						rowId: upd.rowId,
-						payload: upd.changed,
+						payload,
 						hlc: hlcStr,
 						colClocks: Object.fromEntries(Object.keys(upd.changed).map((k) => [k, hlcStr])),
+						...(textPatches ? { textPatches } : {}),
 					}),
 				);
 			}

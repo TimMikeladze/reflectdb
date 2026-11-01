@@ -4,6 +4,7 @@ export {
 	useSync,
 	useSyncStatus,
 	useRow,
+	useText,
 	usePendingCount,
 	useEphemeral,
 	useTotalCount,

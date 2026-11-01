@@ -74,6 +74,10 @@ not the app's working directory.
   scope database reads and mutations, and set `room` in `implement` when a
   query requires that room pattern. Only share results with `groupBy` when
   every subscriber in the group is allowed the identical rows and fields.
+- **Collaborative text:** `conflict: { policy: "merge", text: ["body"] }` merges by content, so two
+  people typing in one value both keep their edits. Edit it with `client.text()` or `useText()`, not
+  `update`. `mutate` must persist `_seen` and `query` must return it, or a binding waits forever. Use one
+  row per paragraph or block, and `mutate` must be an upsert, because a lost race calls it again.
 - **Delivery:** `lww` compares row timestamps; `merge` compares per-column
   timestamps for concurrent field edits. Both accept partial update patches.
   Use schema `presence()` or ephemeral channels for cursors and

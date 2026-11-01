@@ -177,6 +177,12 @@ export function createServer<TDb = unknown, TAuth extends AuthContext = AuthCont
 			// ARE enforced on both, but the conflict policy is not, and a query
 			// that declares one gets last-writer-wins instead.
 			if (options?.broadcast === "eager" || options?.broadcast === "eager-durable") {
+				if (typeof options.conflict === "object" && options.conflict.policy === "merge") {
+					// A text edit is an instruction to merge. Skipping it wouldn't be last-writer-wins, it'd be no write at all.
+					throw new Error(
+						`[reflectdb] Query "${name}" has text columns, which need the consistent broadcast, not "${options.broadcast}"`,
+					);
+				}
 				if (options.conflict) {
 					console.warn(
 						`[reflectdb] Query "${name}" has broadcast: "${options.broadcast}" — conflict: "${

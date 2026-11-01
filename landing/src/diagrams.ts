@@ -468,7 +468,7 @@ export const writePath = frame(880, 660, (id) => {
 		["batch cap", "MAX_BATCH_SIZE = 100 ops per message"],
 		["strip readonly", "schema-declared fields are deleted"],
 		["inject serverSet", "server-owned values overwrite the payload"],
-		["resolveConflict(mirror row, colClocks)", "lww · merge · server · custom — or reject"],
+		["resolveConflict(mirror row, colClocks)", "lww · merge · text · server · custom — or reject"],
 		['authorize({ type: "write" })', "throw MutationError to reject with a reason"],
 		["mutate(op, ctx, db)", "your database, your ORM, your transaction"],
 		["applyOp(row, colClocks, hlc)", "mirror row + op-log entry — one commit"],

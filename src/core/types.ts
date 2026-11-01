@@ -1,3 +1,4 @@
+import type { TextHunk } from "./text.ts";
 // ── Op Types ─────────────────────────────────────────────────────────────────
 
 export type OpType = "insert" | "update" | "delete";
@@ -34,7 +35,23 @@ export interface SyncOp {
  * other and against local optimistic state; it does not reconstruct per-column
  * causality between clients. Column-level convergence is a server guarantee.
  */
-export type ConflictPolicy = "lww" | "merge" | "server" | CustomConflictPolicy;
+export type ConflictPolicy = "lww" | "merge" | "server" | CustomConflictPolicy | TextConflictPolicy;
+
+/**
+ * `merge` per column, except `text` columns merge by content, so two people
+ * typing in one value both keep their edits. Edit them with `client.text()`.
+ * A plain `update` of a text column stays last-writer-wins for that column.
+ */
+export interface TextConflictPolicy {
+	policy: "merge";
+	text: readonly string[];
+	/**
+	 * Boolean column `TextBinding.remove()` sets. A remove that didn't see the
+	 * latest text does nothing, and an edit clears it, so an edit always beats a
+	 * concurrent remove.
+	 */
+	softDelete?: string;
+}
 
 export interface CustomConflictPolicy {
 	policy: "custom";
@@ -229,6 +246,12 @@ export interface DeltaMessage {
 	payload: Record<string, unknown> | null;
 	hlc: string;
 	colClocks?: Record<string, string>;
+	/**
+	 * Text columns sent as a change to what the client holds, in place of the
+	 * value. `hash` is the result's: a mismatch means the client missed something
+	 * and re-bootstraps.
+	 */
+	textPatches?: Record<string, { hunks: TextHunk[]; hash: number }>;
 }
 
 export interface AckMessage {

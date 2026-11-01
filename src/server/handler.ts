@@ -147,6 +147,21 @@ export interface StorageAdapter {
 		opType: string,
 		payload: Record<string, unknown> | null,
 	): Promise<void>;
+	/**
+	 * `applyOp`, only if the row's hlc is still `expectedHlc` (null: no row).
+	 * Returns false without writing otherwise. Lets a merge retry against what
+	 * another machine just wrote. Absent on stores with one writer per room.
+	 */
+	applyOpIf?(
+		table: string,
+		rowId: string,
+		row: Record<string, unknown> | null,
+		colClocks: Record<string, string>,
+		hlc: string,
+		opType: string,
+		payload: Record<string, unknown> | null,
+		expectedHlc: string | null,
+	): Promise<boolean>;
 	getOpsSince(since: string, tables: string[]): Promise<OpLogEntry[]>;
 	/**
 	 * Distinct table names with ops newer than `since`, restricted to `tables`.
@@ -411,6 +426,8 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 			broadcastChanges: (table, excludeClientId) => this.broadcastChanges(table, excludeClientId),
 			forgetWriterRow: (table, clientId, rowId) =>
 				this.broadcast.forgetWriterRow(table, clientId, rowId),
+			recordDeliveredRow: (table, clientId, rowId, row) =>
+				this.broadcast.recordDeliveredRow(table, clientId, rowId, row),
 			recordWriterColumns: (table, clientId, rowId, columns) =>
 				this.broadcast.recordWriterColumns(table, clientId, rowId, columns),
 			clientViewRow: (query, clientId, rowId) =>
@@ -1220,37 +1237,43 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 		// of two per op. A 100-op batch used to issue 100 reserveOp inserts and
 		// 100 getRow selects sequentially before it could start writing.
 		const batch = await this.ops.prefetchBatch(message.ops);
+		const hearWriter = new Set<string>();
 
-		for (const op of message.ops) {
-			if (op.batchId && failedBatchIds.has(op.batchId)) {
-				rejected.push({
-					opId: op.id,
-					batchId: op.batchId,
-					reason: failedBatchIds.get(op.batchId)!,
-				});
-				continue;
-			}
+		try {
+			for (const op of message.ops) {
+				if (op.batchId && failedBatchIds.has(op.batchId)) {
+					rejected.push({
+						opId: op.id,
+						batchId: op.batchId,
+						reason: failedBatchIds.get(op.batchId)!,
+					});
+					continue;
+				}
 
-			const result = await this.ops.processClientOp(op, session, deferredBroadcastTables, batch);
-			if (result.accepted) {
-				accepted.push(op.id);
-			} else {
-				const reason = result.reason ?? "server_error";
-				rejected.push({
-					opId: op.id,
-					batchId: op.batchId,
-					reason,
-					serverRow: result.serverRow,
-				});
-				if (op.batchId) {
-					failedBatchIds.set(op.batchId, reason);
+				const result = await this.ops.processClientOp(op, session, deferredBroadcastTables, batch);
+				if (result.accepted) {
+					accepted.push(op.id);
+					if (result.hearWriter) hearWriter.add(op.table);
+				} else {
+					const reason = result.reason ?? "server_error";
+					rejected.push({
+						opId: op.id,
+						batchId: op.batchId,
+						reason,
+						serverRow: result.serverRow,
+					});
+					if (op.batchId) {
+						failedBatchIds.set(op.batchId, reason);
+					}
 				}
 			}
+		} finally {
+			this.ops.finishBatch(batch);
 		}
 
 		// Broadcast once per unique affected table after all ops are processed
 		for (const table of deferredBroadcastTables) {
-			await this.broadcastChanges(table, session.clientId);
+			await this.broadcastChanges(table, hearWriter.has(table) ? "" : session.clientId);
 		}
 
 		this.emit({
@@ -1549,14 +1572,7 @@ export class MessageHandler<TAuth extends AuthContext = AuthContext> {
 		};
 
 		for (const roomKey of roomKeys) {
-			const accepted = await this.ephemeralManager.set(
-				roomKey,
-				key,
-				clientId,
-				userId,
-				data,
-				ttlMs,
-			);
+			const accepted = await this.ephemeralManager.set(roomKey, key, clientId, userId, data, ttlMs);
 			if (!accepted) {
 				this.emit({
 					type: "ephemeral_full",

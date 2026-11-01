@@ -14,5 +14,7 @@ export type {
 export type { ClientStorageAdapter } from "./storage/types.ts";
 export type { ClientTransport, ServerTransport } from "../core/types.ts";
 export { createMemoryStorage } from "./storage/memory.ts";
+export { TextBinding } from "./text.ts";
+export type { TextBindingOptions } from "./text.ts";
 export { createSyncClient } from "./typed-client.ts";
 export type { TypedSyncClientConfig, TypedSyncClient } from "./typed-client.ts";

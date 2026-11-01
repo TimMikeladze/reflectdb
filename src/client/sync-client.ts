@@ -1,3 +1,5 @@
+import { applyHunks, hashText } from "../core/text.ts";
+import { TextBinding, type TextBindingOptions } from "./text.ts";
 import type {
 	ClientOp,
 	ClientTransport,
@@ -29,7 +31,13 @@ export interface SyncClientConfig {
 	 * failures (reauth/transport) use a "local:*" namespace so consumers
 	 * can switch on the string.
 	 */
-	onError?: (error: { opId?: string; batchId?: string; table?: string; reason: ErrorReason | `local:${string}`; message?: string }) => void;
+	onError?: (error: {
+		opId?: string;
+		batchId?: string;
+		table?: string;
+		reason: ErrorReason | `local:${string}`;
+		message?: string;
+	}) => void;
 	onReauth?: () => Promise<string>;
 	/** Max reconnect backoff in ms (before jitter). Default: 30_000. */
 	maxReconnectDelayMs?: number;
@@ -103,6 +111,10 @@ export class SyncClient {
 	/** The server's id for this connection, from hello_ack. */
 	private connectionId: string | null = null;
 	private syncedTables = new Set<string>();
+	/** Who this client is in a row's `_seen`. Random per client, so tabs don't share one. */
+	readonly textWriterId: string = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+	private textWrites = 0;
+	private opRejectedListeners = new Set<(opId: string, reason: ErrorReason) => void>();
 	/** Tables `sync()`ed before the handshake finished; declared on `hello_ack`. */
 	private queuedDeclares = new Set<string>();
 	private autoPushQueued = false;
@@ -117,7 +129,9 @@ export class SyncClient {
 	private ephemeralListeners = new Map<string, Set<(event: EphemeralEvent) => void>>();
 	private signalListeners = new Set<(event: SignalEvent) => void>();
 	/** Callers waiting on an `ice_servers` reply. */
-	private iceWaiters = new Set<(reply: { iceServers: IceServer[]; expiresAt: number | null }) => void>();
+	private iceWaiters = new Set<
+		(reply: { iceServers: IceServer[]; expiresAt: number | null }) => void
+	>();
 	private ephemeralRouter: EphemeralRouter | null = null;
 	/** Highest `__seq` delivered per `clientId\0key`. */
 	private ephemeralSeen = new Map<string, number>();
@@ -333,6 +347,49 @@ export class SyncClient {
 			params,
 			window: options?.window,
 		});
+		// A declare only subscribes. Rows arrive with a bootstrap, which also clears
+		// the old rows if this was a change of params.
+		if (!this.closed) this.scheduleBootstrap();
+	}
+
+	/**
+	 * A text column you can type into. See `TextBinding`. The table needs
+	 * `conflict: { policy: "merge", text: [column] }`.
+	 */
+	text(table: string, rowId: string, column: string, options?: TextBindingOptions): TextBinding {
+		return new TextBinding(this, table, rowId, column, options);
+	}
+
+	/** The next write number for this client's text bindings. `_seen` compares them. */
+	nextTextWrite(): number {
+		return ++this.textWrites;
+	}
+
+	onOpRejected(listener: (opId: string, reason: ErrorReason) => void): () => void {
+		this.opRejectedListeners.add(listener);
+		return () => {
+			this.opRejectedListeners.delete(listener);
+		};
+	}
+
+	/**
+	 * Turn a delta's text patches back into values. False means it doesn't apply to
+	 * what this client holds: something was missed, so bootstrap rather than guess.
+	 */
+	private unpatchText(message: Extract<ServerMessage, { type: "delta" }>): boolean {
+		const row = this.store.getRow(message.table, message.rowId)?.data;
+		const payload = { ...message.payload };
+		for (const [column, { hunks, hash }] of Object.entries(message.textPatches ?? {})) {
+			const held = row?.[column];
+			const value = typeof held === "string" ? applyHunks(held, hunks) : null;
+			if (value === null || hashText(value) !== hash) {
+				if (!this.closed) this.scheduleBootstrap();
+				return false;
+			}
+			payload[column] = value;
+		}
+		message.payload = payload;
+		return true;
 	}
 
 	async loadMore(table: string, count: number): Promise<void> {
@@ -469,12 +526,14 @@ export class SyncClient {
 	 */
 	push(): Promise<void> {
 		if (this.pushPending) return this.pushPending;
-		const run = this.pushChain.catch(() => {}).then(() => {
-			// Clear before running so a push issued *during* this one queues
-			// behind it instead of joining it and missing its own ops.
-			this.pushPending = null;
-			return this.doPush();
-		});
+		const run = this.pushChain
+			.catch(() => {})
+			.then(() => {
+				// Clear before running so a push issued *during* this one queues
+				// behind it instead of joining it and missing its own ops.
+				this.pushPending = null;
+				return this.doPush();
+			});
 		this.pushPending = run;
 		this.pushChain = run.catch(() => {});
 		return run;
@@ -901,6 +960,7 @@ export class SyncClient {
 				break;
 
 			case "delta":
+				if (message.textPatches && !this.unpatchText(message)) break;
 				this.store.applyDelta(
 					message.table,
 					message.op,
@@ -931,6 +991,7 @@ export class SyncClient {
 			}
 
 			case "reject": {
+				const rejectedOps: string[] = [];
 				const rejectedTables: string[] = [];
 				if (message.opId) {
 					this.inFlightOps.delete(message.opId);
@@ -938,6 +999,7 @@ export class SyncClient {
 					if (pending) rejectedTables.push(pending.op.table);
 					this.store.markRejected(message.opId, message.reason);
 					this.store.revertOp(message.opId, message.serverRow ?? null);
+					rejectedOps.push(message.opId);
 				}
 				if (message.batchId) {
 					// Snapshot ops before mutation so we can revert each one. Without
@@ -953,10 +1015,14 @@ export class SyncClient {
 					for (const opId of batchOpIds) {
 						this.inFlightOps.delete(opId);
 						this.store.revertOp(opId, null);
+						rejectedOps.push(opId);
 					}
 				}
 				const uniqueRejectedTables = [...new Set(rejectedTables)];
 				this.notify(uniqueRejectedTables.length > 0 ? uniqueRejectedTables : undefined);
+				for (const opId of rejectedOps) {
+					for (const listener of this.opRejectedListeners) listener(opId, message.reason);
+				}
 				this.config.onError?.({
 					opId: message.opId,
 					reason: message.reason,
